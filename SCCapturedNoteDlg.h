@@ -17,6 +17,7 @@
 #pragma once
 
 #include <afxwin.h>
+#include "Common/CButton/GdiButton/GdiButton.h"
 #include "Common/directx/CSCD2Context/SCD2Context.h"
 #include "Common/directx/CSCD2Image/SCD2Image.h"
 #include "Common/CDialog/SCD2ImageDlg/SCD2ImageDlg.h"
@@ -25,25 +26,6 @@
 //마우스 이벤트가 dispatch 단계에서 효과적으로 무시된다. 우리가 derived 에서 override 하여
 //자식 자체의 표준 dispatch 로 마우스를 받아 pan / 창 이동을 처리한다.
 //(NoteDlg 의 PreTranslateMessage 가 자식 영역 마우스를 가로채는 데 의존하지 않음.)
-class CSCNoteImageDlg : public CSCD2ImageDlg
-{
-	DECLARE_DYNAMIC(CSCNoteImageDlg)
-
-public:
-	using CSCD2ImageDlg::CSCD2ImageDlg;
-
-protected:
-	//pan only — 창 이동은 부모 OnNcHitTest 가 HTCAPTION 으로 반환해 Windows 가 처리.
-	bool	m_panning = false;
-	POINT	m_pan_last = {};
-
-	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
-	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
-	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
-	DECLARE_MESSAGE_MAP()
-};
-
-
 class CSCCapturedNoteDlg : public CDialog
 {
 	DECLARE_DYNAMIC(CSCCapturedNoteDlg)
@@ -58,6 +40,8 @@ public:
 	//반환값:         성공 시 다이얼로그 포인터 (소유권은 다이얼로그 자신, self-delete). NULL 이면 실패.
 	static CSCCapturedNoteDlg* spawn(const BYTE* bgra_top_down, int w, int h, const POINT* pos_screen = NULL);
 
+	LRESULT			on_message_CGdiButton(WPARAM wParam, LPARAM lParam);
+
 private:
 	enum
 	{
@@ -66,18 +50,26 @@ private:
 		kCmdZoom100 = 2,
 		kCmdZoomFit = 3,
 		kCmdClose = 4,
+		kCmdSave = 5,
+		kIdBtnClose = 1001,	//우상단 닫기 버튼 (CGdiButton) 컨트롤 ID
 	};
 
 	CSCD2Context	m_d2;
 	CSCD2Image		m_image;
-	CSCNoteImageDlg	m_img_dlg;	//derived: pan/창이동 을 자식 자체에서 처리
+	CSCD2ImageDlg	m_img_dlg;	//ASee 와 동일 패턴 — derived 없이 직접 사용. enable_pan 만 켬.
+	CGdiButton		m_button_close;
+
+	CPoint			m_pt_mouse;
 
 	int				m_img_w = 0;
 	int				m_img_h = 0;
 	bool			m_initialized = false;
+	BYTE			m_alpha = 255;	//Ctrl+wheel 로 조정. 64 ~ 255 범위 (완전 투명 방지).
 
 	bool			init_with_image(const BYTE* bgra, int w, int h, const POINT* pos_screen);
 	void			show_context_menu(CPoint pt_screen);
+	void			execute_cmd(int cmd);	//메뉴 항목과 단축키가 공유하는 명령 디스패처
+	void			on_img_dlg_post_paint(ID2D1DeviceContext* d2dc);	//m_img_dlg 의 D2D frame 안에서 추가 오버레이 그리기
 
 	afx_msg void	OnSize(UINT nType, int cx, int cy);
 	afx_msg LRESULT	OnNcHitTest(CPoint point);
@@ -92,4 +84,6 @@ private:
 	DECLARE_MESSAGE_MAP()
 public:
 	afx_msg BOOL OnNcActivate(BOOL bActive);
+	afx_msg void OnNcMouseMove(UINT nHitTest, CPoint point);
+	afx_msg void OnBnClickedCloseButton();
 };

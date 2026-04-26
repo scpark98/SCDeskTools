@@ -3,59 +3,6 @@
 #include "pch.h"
 #include "SCCapturedNoteDlg.h"
 
-// ------------------- CSCNoteImageDlg ---------------------------------------
-
-IMPLEMENT_DYNAMIC(CSCNoteImageDlg, CSCD2ImageDlg)
-
-BEGIN_MESSAGE_MAP(CSCNoteImageDlg, CSCD2ImageDlg)
-	ON_WM_LBUTTONDOWN()
-	ON_WM_MOUSEMOVE()
-	ON_WM_LBUTTONUP()
-END_MESSAGE_MAP()
-
-void CSCNoteImageDlg::OnLButtonDown(UINT /*nFlags*/, CPoint /*point*/)
-{
-	//여기 도착하는 클릭 = 부모 OnNcHitTest 가 HTCLIENT 반환한 케이스 = Shift 보유.
-	//비Shift 클릭은 부모가 HTCAPTION 으로 반환하여 Windows modal move 가 처리 → 여기 안 옴.
-	if (get_fit2ctrl())
-		fit2ctrl(false);
-
-	::GetCursorPos(&m_pan_last);
-	m_panning = true;
-	SetCapture();
-}
-
-void CSCNoteImageDlg::OnMouseMove(UINT nFlags, CPoint point)
-{
-	if (m_panning && (nFlags & MK_LBUTTON))
-	{
-		POINT cur;
-		::GetCursorPos(&cur);
-		const int dx = cur.x - m_pan_last.x;
-		const int dy = cur.y - m_pan_last.y;
-		if (dx || dy)
-		{
-			scroll(dx, dy);
-			m_pan_last = cur;
-		}
-		return;
-	}
-	CSCD2ImageDlg::OnMouseMove(nFlags, point);
-}
-
-void CSCNoteImageDlg::OnLButtonUp(UINT nFlags, CPoint point)
-{
-	if (m_panning)
-	{
-		if (::GetCapture() == m_hWnd)
-			::ReleaseCapture();
-		m_panning = false;
-		return;
-	}
-	CSCD2ImageDlg::OnLButtonUp(nFlags, point);
-}
-
-
 // ------------------- CSCCapturedNoteDlg ------------------------------------
 
 IMPLEMENT_DYNAMIC(CSCCapturedNoteDlg, CDialog)
@@ -67,6 +14,9 @@ BEGIN_MESSAGE_MAP(CSCCapturedNoteDlg, CDialog)
 	ON_WM_CONTEXTMENU()
 	ON_WM_NCRBUTTONUP()
 	ON_WM_NCACTIVATE()
+	ON_WM_NCMOUSEMOVE()
+	ON_REGISTERED_MESSAGE(Message_CGdiButton, &CSCCapturedNoteDlg::on_message_CGdiButton)
+	ON_BN_CLICKED(kIdBtnClose, &CSCCapturedNoteDlg::OnBnClickedCloseButton)
 END_MESSAGE_MAP()
 
 CSCCapturedNoteDlg::CSCCapturedNoteDlg() : CDialog()
@@ -158,6 +108,10 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	if (!ok)
 		return false;
 
+	//WS_EX_LAYERED 활성화 — Ctrl+wheel 로 창 투명도 조절 가능하게.
+	ModifyStyleEx(0, WS_EX_LAYERED);
+	SetLayeredWindowAttributes(0, m_alpha, LWA_ALPHA);
+
 	//컨테이너 자체 D2D 컨텍스트.
 	HRESULT hr = m_d2.init(m_hWnd, win_cx, win_cy);
 	if (FAILED(hr))
@@ -177,7 +131,8 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 
 	//자식 이미지 다이얼로그 — simple_mode 로 줌/팬 만 자동 처리.
 	//set_shared_d2dc 는 create() 호출 전에 설정해야 효과 있음.
-	m_img_dlg.set_simple_mode(true);
+	m_img_dlg.set_simple_mode(true);	//모든 기능 off
+	m_img_dlg.set_enable_pan(true);		//pan 만 enable (Shift+drag 로 활성화 — note dlg 의 OnNcHitTest 가 routing)
 	m_img_dlg.set_shared_d2dc(&m_d2);
 
 	CRect rc_client;
@@ -185,7 +140,31 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	m_img_dlg.create(this, 0, 0, rc_client.Width(), rc_client.Height());
 	m_img_dlg.set_image(&m_image);
 
+	//post-paint 콜백 — m_img_dlg 의 D2D 같은 frame 에 추가 오버레이 그림 (안티앨리어싱, z-order 충돌 없음).
+	//본문은 멤버 함수로 분리. 람다는 this 캡처하여 멤버 호출만 위임.
+	m_img_dlg.set_post_paint_callback(
+		[this](ID2D1DeviceContext* d2dc) { on_img_dlg_post_paint(d2dc); });
+
 	m_initialized = true;
+
+	//BS_OWNERDRAW 는 CGdiButton 이 PreSubclassWindow 에서 자체 추가. 외부 명시 불필요.
+	//(CGdiButton::create / PreSubclassWindow 가 외부 BS_OWNERDRAW 를 자동 정규화하지만 안 주는 게 정석.)
+	m_button_close.create(_T(""), WS_CHILD, CRect(0, 0, 21, 21), this, kIdBtnClose);
+	m_button_close.ShowWindow(SW_SHOW);
+
+	//YouTube/Chrome 닫기 버튼 톤의 빨강 배경 + 흰 X.
+	CSCGdiplusBitmap close_btn_bmp(21, 21, Gdiplus::Color(255, 232, 17, 35));
+	{
+		Gdiplus::Graphics g(close_btn_bmp);
+		g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+		Gdiplus::Pen pen(Gdiplus::Color(255, 255, 255, 255), 2.0f);
+		pen.SetStartCap(Gdiplus::LineCapRound);
+		pen.SetEndCap(Gdiplus::LineCapRound);
+		const int pad = 5;
+		g.DrawLine(&pen, pad,      pad,      21 - pad, 21 - pad);
+		g.DrawLine(&pen, 21 - pad, pad,      pad,      21 - pad);
+	}
+	m_button_close.add_image(&close_btn_bmp);
 
 	ShowWindow(SW_SHOW);
 	SetForegroundWindow();
@@ -200,6 +179,9 @@ void CSCCapturedNoteDlg::OnSize(UINT nType, int cx, int cy)
 	{
 		//클라이언트 전체에 자식을 fit. 자식이 알아서 fit-to-ctrl 또는 zoom 모드에 맞춰 다시 그림.
 		m_img_dlg.MoveWindow(0, 0, cx, cy, TRUE);
+
+		CRect rbutton = make_rect(cx - m_button_close.width() - 3, 3, m_button_close.width(), m_button_close.height());
+		m_button_close.MoveWindow(rbutton);
 	}
 }
 
@@ -279,12 +261,13 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 
 	CMenu menu;
 	menu.CreatePopupMenu();
-	menu.AppendMenu(MF_STRING, kCmdCopy,    _T("클립보드로 복사(&C)"));
+	menu.AppendMenu(MF_STRING, kCmdCopy,    _T("클립보드로 복사(&C)\tCtrl+C"));
+	menu.AppendMenu(MF_STRING, kCmdSave,    _T("이미지 저장(&S)...\tCtrl+S"));
 	menu.AppendMenu(MF_SEPARATOR);
-	menu.AppendMenu(flag_100,  kCmdZoom100, _T("100% 크기"));
-	menu.AppendMenu(flag_fit,  kCmdZoomFit, _T("창에 맞춤(&F)"));
+	menu.AppendMenu(flag_100,  kCmdZoom100, _T("100% 크기\tCtrl+W"));
+	menu.AppendMenu(flag_fit,  kCmdZoomFit, _T("창에 맞춤(&F)\tCtrl+F"));
 	menu.AppendMenu(MF_SEPARATOR);
-	menu.AppendMenu(MF_STRING, kCmdClose,   _T("닫기(&X)"));
+	menu.AppendMenu(MF_STRING, kCmdClose,   _T("닫기(&X)\tEsc"));
 
 	SetForegroundWindow();
 	int cmd = menu.TrackPopupMenu(
@@ -292,22 +275,100 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 		pt_screen.x, pt_screen.y, this);
 	PostMessage(WM_NULL);
 
+	if (cmd > 0)
+		execute_cmd(cmd);
+}
+
+void CSCCapturedNoteDlg::execute_cmd(int cmd)
+{
 	switch (cmd)
 	{
-	case kCmdCopy:
-		m_img_dlg.copy_to_clipboard();
-		break;
-	case kCmdZoom100:
-		//SCD2ImageDlg 컨벤션: zoom(int 0) = 원본 100% (ASee OnMenuZoomOrigin 과 동일).
-		m_img_dlg.zoom(0);
-		break;
-	case kCmdZoomFit:
-		//창에 맞춤 = fit2ctrl(true). zoom() 과 별개의 모드 (m_fit2ctrl flag).
-		m_img_dlg.fit2ctrl(true);
-		break;
-	case kCmdClose:
-		DestroyWindow();
-		break;
+		case kCmdCopy:
+			m_img_dlg.copy_to_clipboard();
+			break;
+		case kCmdZoom100:
+		{
+			//100% = 이미지 픽셀 1:1 + 창 크기를 이미지 크기에 맞춰 자동 조정 (화면 80% 안 비율 유지).
+			m_img_dlg.fit2ctrl(false);
+			m_img_dlg.zoom(0);	//SCD2ImageDlg 컨벤션: zoom(int 0) = 원본 100% (ASee OnMenuZoomOrigin 과 동일)
+
+			int target_cx = m_img_w;
+			int target_cy = m_img_h;
+
+			const int cx_screen = ::GetSystemMetrics(SM_CXSCREEN);
+			const int cy_screen = ::GetSystemMetrics(SM_CYSCREEN);
+			const int max_cx = cx_screen * 80 / 100;
+			const int max_cy = cy_screen * 80 / 100;
+
+			if (target_cx > max_cx)
+			{
+				target_cy = int(double(target_cy) * max_cx / target_cx);
+				target_cx = max_cx;
+			}
+			if (target_cy > max_cy)
+			{
+				target_cx = int(double(target_cx) * max_cy / target_cy);
+				target_cy = max_cy;
+			}
+			if (target_cx < 80) target_cx = 80;
+			if (target_cy < 60) target_cy = 60;
+
+			//NC 오프셋 측정 — client 가 정확히 target 이 되도록 window 크기 결정.
+			CRect rc_window, rc_client;
+			GetWindowRect(rc_window);
+			GetClientRect(rc_client);
+			const int nc_cx = rc_window.Width()  - rc_client.Width();
+			const int nc_cy = rc_window.Height() - rc_client.Height();
+
+			SetWindowPos(NULL, 0, 0,
+				target_cx + nc_cx, target_cy + nc_cy,
+				SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+			break;
+		}
+		case kCmdZoomFit:
+			//창에 맞춤 = fit2ctrl(true). zoom() 과 별개의 모드 (m_fit2ctrl flag).
+			m_img_dlg.fit2ctrl(true);
+			break;
+		case kCmdClose:
+			DestroyWindow();
+			break;
+
+		case kCmdSave:
+		{
+			//파일 대화상자의 filter 드롭다운에서 포맷 선택. 새 포맷 추가는 filter 문자열만 확장하면 됨.
+			LPCTSTR filter =
+				_T("PNG 이미지 (*.png)|*.png|")
+				_T("JPEG 이미지 (*.jpg;*.jpeg)|*.jpg;*.jpeg|")
+				_T("모든 파일 (*.*)|*.*||");
+
+			SYSTEMTIME st;
+			::GetLocalTime(&st);
+
+			CString recent_folder = AfxGetApp()->GetProfileString(_T("settings"), _T("recent_folder"), get_exe_directory());
+			CString default_name;
+			default_name.Format(_T("%s\\capture_%04d%02d%02d_%02d%02d%02d.png"),
+				recent_folder,
+				st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+			CFileDialog dlg(FALSE, _T("png"), default_name,
+				OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT, filter, this);
+
+			if (dlg.DoModal() != IDOK)
+				break;
+
+			CString path = dlg.GetPathName();
+			CString ext = ::PathFindExtension(path);
+			ext.MakeLower();
+			const bool is_jpg = (ext == _T(".jpg") || ext == _T(".jpeg"));
+
+			const float quality = is_jpg ? 0.92f : 1.0f;	//PNG 는 무손실이라 quality 의미 없음
+			HRESULT hr = m_img_dlg.save(path, quality);
+			if (FAILED(hr))
+				AfxMessageBox(_T("이미지 저장 실패."));
+
+			AfxGetApp()->WriteProfileString(_T("settings"), _T("recent_folder"), get_part(path, fn_folder));
+			break;
+		}
 	}
 }
 
@@ -316,14 +377,47 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 	//자식 (CSCD2ImageDlg simple_mode) 이 마우스/키를 거의 처리하지 않으므로
 	//PreTranslateMessage 단계에서 부모가 가로채서 모두 처리한다.
 
+	if (pMsg->message == WM_MOUSEMOVE)
+	{
+		TRACE(_T("PreTranslateMessage, WM_MOUSEMOVE\n"));
+	}
+	/*
+		//마우스 이동 시 닫기 버튼 노출 제어. 이미지 가장자리 근처로 마우스가 오면 버튼이 나타나고 멀어지면 사라진다.
+		//버튼이 마우스에 가려지는 경우가 있는데, 이 경우는 버튼이 항상 보이는 게 낫다고 판단하여 노출 유지.
+		POINT pt = { LOWORD(pMsg->lParam), HIWORD(pMsg->lParam) };
+		ClientToScreen(&pt);
+		CRect rc;
+		GetWindowRect(rc);
+		if (m_button_close.GetSafeHwnd())
+		{
+			if (m_button_close.IsWindowVisible() == false && pt.x > rc.right - 32 && pt.y < rc.top + 32)
+				m_button_close.ShowWindow(SW_SHOW);
+			else if (m_button_close.IsWindowVisible() && (pt.x <= rc.right - 32 || pt.y >= rc.top + 32))
+				m_button_close.ShowWindow(SW_HIDE);
+		}
+	}
 	//휠 = 줌. SCD2ImageDlg simple_mode 는 자체 휠 처리 X.
 	//커서 아래의 이미지 픽셀이 줌 후에도 같은 화면 위치에 머무르도록 offset 보정.
 	//   zoom_after = zoom_before * ratio
 	//   원하는 화면 위치 cur 가 그대로 유지되려면:
 	//   dx = (cur.x - rc_before.left) * (1 - ratio)   (sy 도 동일)
-	if (pMsg->message == WM_MOUSEWHEEL)
+	*/
+	else if (pMsg->message == WM_MOUSEWHEEL)
 	{
 		short zDelta = static_cast<short>(HIWORD(pMsg->wParam));
+
+		//Ctrl+wheel = 창 투명도 조정. wParam 의 LOWORD 에 MK_CONTROL 비트 들어옴.
+		const bool ctrl = (LOWORD(pMsg->wParam) & MK_CONTROL) != 0;
+		if (ctrl)
+		{
+			const int step = 16;
+			int alpha = m_alpha + (zDelta > 0 ? step : -step);
+			if (alpha > 255) alpha = 255;
+			if (alpha < 64)  alpha = 64;	//완전 투명 방지 (창을 다시 못 찾는 사고 방지)
+			m_alpha = static_cast<BYTE>(alpha);
+			SetLayeredWindowAttributes(0, m_alpha, LWA_ALPHA);
+			return TRUE;
+		}
 
 		POINT cur_screen;
 		::GetCursorPos(&cur_screen);
@@ -370,12 +464,57 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 		case VK_NUMPAD0:	//숫자패드 0
 			m_img_dlg.zoom(0);	//원본 100% (ASee 컨벤션)
 			return TRUE;
+
+		//Ctrl 조합 — 컨텍스트 메뉴 캡션에 표시된 단축키. execute_cmd 로 메뉴와 동일 경로 실행.
+		case 'C':	//Ctrl+C = 클립보드 복사
+		case 'S':	//Ctrl+S = 이미지 저장
+		case 'W':	//Ctrl+W = 100% 크기
+		case 'F':	//Ctrl+F = 창에 맞춤
+			if (::GetAsyncKeyState(VK_CONTROL) & 0x8000)
+			{
+				int cmd = 0;
+				switch (pMsg->wParam)
+				{
+				case 'C': cmd = kCmdCopy;    break;
+				case 'S': cmd = kCmdSave;    break;
+				case 'W': cmd = kCmdZoom100; break;
+				case 'F': cmd = kCmdZoomFit; break;
+				}
+				if (cmd)
+				{
+					execute_cmd(cmd);
+					return TRUE;
+				}
+			}
+			break;
 		}
 	}
+	else if (pMsg->message == WM_SYSKEYDOWN)
+	{
+		switch (pMsg->wParam)
+		{
+			case '1':
+				m_img_dlg.set_interpolation_mode(D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+				return TRUE;
+			case '2':
+				m_img_dlg.set_interpolation_mode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+				return TRUE;
 
-	//WM_LBUTTONDOWN / WM_MOUSEMOVE / WM_LBUTTONUP 은 자식 (CSCNoteImageDlg) 의
-	//OnLButton*/OnMouseMove override 가 직접 처리하므로 여기서는 다루지 않는다.
-	//PreTranslate walk-up 에 의존하지 않아 라우팅이 안정적.
+			//Alt+Left/Right = 15° 회전, Alt+Shift+Left/Right = 1° 회전.
+			case VK_LEFT:
+			case VK_RIGHT:
+			{
+				const bool shift = (::GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+				const double step = shift ? 1.0 : 15.0;
+				const double sign = (pMsg->wParam == VK_RIGHT) ? +1.0 : -1.0;
+				m_img_dlg.set_render_angle(m_img_dlg.get_render_angle() + sign * step);
+				return TRUE;
+			}
+		}
+	}
+	//WM_LBUTTONDOWN / WM_MOUSEMOVE / WM_LBUTTONUP 은 m_img_dlg (CSCD2ImageDlg) 가 자체 처리.
+	//enable_pan=true 라 base 가 native pan 처리. 비-Shift 드래그는 부모의 OnNcHitTest 가
+	//HTCAPTION 으로 반환해 Windows modal move 가 처리.
 
 	return CDialog::PreTranslateMessage(pMsg);
 }
@@ -387,7 +526,7 @@ void CSCCapturedNoteDlg::OnOK()
 
 void CSCCapturedNoteDlg::OnCancel()
 {
-	//Esc 가 PreTranslate 에서 미처 잡히지 않은 경우의 fallback.
+	//Esc 가 PreTranslate 에서 미처 잡히지 않은 경우의 fallback. close button 도 이 경로 사용.
 	DestroyWindow();
 }
 
@@ -402,4 +541,68 @@ BOOL CSCCapturedNoteDlg::OnNcActivate(BOOL bActive)
 	// TODO: 여기에 메시지 처리기 코드를 추가 및/또는 기본값을 호출합니다.
 	return TRUE;
 	return CDialog::OnNcActivate(bActive);
+}
+
+void CSCCapturedNoteDlg::OnBnClickedCloseButton()
+{
+	//PostMessage 인 이유: CGdiButton::OnLButtonUp 이 BN_CLICKED 발송 후 (line 2011) 추가로
+	//CGdiButtonMessage 발송 (line 2013) + parent->m_hWnd 등 접근. 여기서 동기 DestroyWindow 시
+	//note dlg 가 즉시 self-delete → CGdiButton 의 잔여 코드가 freed parent 접근 → use-after-free.
+	//PostMessage 로 destroy 를 다음 메시지 사이클로 미룸 → CGdiButton 의 OnLButtonUp 안전하게 종료.
+	PostMessage(WM_COMMAND, IDCANCEL);
+}
+
+void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
+{
+	return;
+
+	//m_img_dlg 의 OnPaint 가 D2D BeginDraw / EndDraw 사이에서 호출 → 같은 frame 에 오버레이.
+	//테스트용 빨간 사각형 (좌상단 20,20 부터 100x60).
+	if (!d2dc)
+		return;
+
+//	if (m_pt_mouse)
+	ComPtr<ID2D1SolidColorBrush> br_red;
+	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Red, 1.0f), br_red.GetAddressOf());
+	if (!br_red)
+		return;
+
+	D2D1_RECT_F r = D2D1::RectF(20.0f, 20.0f, 120.0f, 80.0f);
+	d2dc->DrawRectangle(r, br_red.Get(), 3.0f);
+}
+
+void CSCCapturedNoteDlg::OnNcMouseMove(UINT nHitTest, CPoint point)
+{
+	//point 는 screen 좌표. OnNcHitTest 가 client 영역에 대해 HTCAPTION 을 리턴하므로
+	//client 위 마우스 이동도 모두 여기로 옴 (resize 보더의 HTTOP/HTRIGHT 등도 포함).
+	TRACE(_T("nc mouse move. hit=%u screen=(%d, %d)\n"), nHitTest, point.x, point.y);
+	//m_pt_mouse = point;
+	CRect rc;
+	GetClientRect(rc);
+	ScreenToClient(&point);
+
+	//버튼 (20x20 + margin 2 = 우상단 24x24 영역) 위에 마우스가 있을 때만 표시.
+	if (point.x > rc.Width() - 24 && point.y < 24)
+		m_button_close.ShowWindow(SW_SHOW);
+	else
+		m_button_close.ShowWindow(SW_HIDE);
+
+	CDialog::OnNcMouseMove(nHitTest, point);
+}
+
+LRESULT CSCCapturedNoteDlg::on_message_CGdiButton(WPARAM wParam, LPARAM lParam)
+{
+	CGdiButtonMessage* msg = (CGdiButtonMessage*)wParam;
+	trace(msg->message);
+	if (msg->pThis == &m_button_close)
+	{
+		switch (msg->message)
+		{
+		case BN_CLICKED:
+			DestroyWindow();
+			break;
+		}
+	}
+
+	return 0;
 }

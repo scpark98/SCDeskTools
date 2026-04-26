@@ -212,6 +212,7 @@
     <ClInclude Include="..\Common\CSliderCtrl\SCSliderCtrl\SCSliderCtrl.h" />
     <ClInclude Include="..\Common\CStatic\SCStatic\SCStatic.h" />
     <ClInclude Include="..\Common\CDialog\SCD2ImageDlg\SCD2ImageDlg.h" />
+    <ClInclude Include="..\Common\CStatic\XPGroupBox\XPGroupBox.h" />
     <ClInclude Include="..\Common\directx\CSCD2Context\SCD2Context.h" />
     <ClInclude Include="..\Common\directx\CSCD2Image\SCD2Image.h" />
     <ClInclude Include="..\Common\Functions.h" />
@@ -219,8 +220,12 @@
     <ClInclude Include="..\Common\thread\CSCThread\SCThread.h" />
     <ClInclude Include="..\Common\thread\CSCThreadGroup\SCThreadGroup.h" />
     <ClInclude Include="..\Common\ThumbCtrl\SCThumbCtrl.h" />
+    <ClInclude Include="SCFrozenOverlayDlg.h" />
     <ClInclude Include="SCCaptureOverlayDlg.h" />
     <ClInclude Include="SCCapturedNoteDlg.h" />
+    <ClInclude Include="SCRegionCaptureDlg.h" />
+    <ClInclude Include="SCProtractorDlg.h" />
+    <ClInclude Include="SCRulerDlg.h" />
     <ClInclude Include="..\Common\MemoryDC.h" />
     <ClInclude Include="..\Common\ResizeCtrl.h" />
     <ClInclude Include="..\Common\SCGdiplusBitmap.h" />
@@ -276,6 +281,12 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="..\Common\CStatic\SCStatic\SCStatic.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="..\Common\CStatic\XPGroupBox\XPGroupBox.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
@@ -347,8 +358,12 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="SCFrozenOverlayDlg.cpp" />
     <ClCompile Include="SCCaptureOverlayDlg.cpp" />
     <ClCompile Include="SCCapturedNoteDlg.cpp" />
+    <ClCompile Include="SCRegionCaptureDlg.cpp" />
+    <ClCompile Include="SCProtractorDlg.cpp" />
+    <ClCompile Include="SCRulerDlg.cpp" />
     <ClCompile Include="SCDeskTools.cpp" />
     <ClCompile Include="SCDeskToolsDlg.cpp" />
   </ItemGroup>

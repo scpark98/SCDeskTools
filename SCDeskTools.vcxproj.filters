@@ -96,11 +96,26 @@
     <ClInclude Include="..\Common\messagebox\Win32InputBox\Win32InputBox.h">
       <Filter>Common</Filter>
     </ClInclude>
+    <ClInclude Include="SCFrozenOverlayDlg.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="SCCaptureOverlayDlg.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="SCCapturedNoteDlg.h">
       <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="SCRegionCaptureDlg.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="SCProtractorDlg.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="SCRulerDlg.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Common\CStatic\XPGroupBox\XPGroupBox.h">
+      <Filter>Common</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -167,11 +182,26 @@
     <ClCompile Include="..\Common\messagebox\Win32InputBox\Win32InputBox.cpp">
       <Filter>Common</Filter>
     </ClCompile>
+    <ClCompile Include="SCFrozenOverlayDlg.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="SCCaptureOverlayDlg.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="SCCapturedNoteDlg.cpp">
       <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="SCRegionCaptureDlg.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="SCProtractorDlg.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="SCRulerDlg.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Common\CStatic\XPGroupBox\XPGroupBox.cpp">
+      <Filter>Common</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

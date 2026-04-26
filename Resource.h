@@ -14,8 +14,15 @@
 #define ID_TOOL_CAPTURE_REGION			32774
 #define ID_APP_SHOW_HIDE				32775
 #define ID_HELP_ABOUT					32776
-#define ID_APP_EXIT						32777
+#define ID_SC_EXIT						32777
 #define ID_TOOL_PASTE_CLIPBOARD			32778
+#define ID_TOOL_PROTRACTOR				32779
+#define ID_TOOL_RULER					32780
+#define ID_TOOL_CAPTURE_FULLSCREEN		32781
+
+//모니터별 캡처 — 멀티 모니터 환경에서 동적 메뉴 항목용 ID 범위. 16 모니터까지.
+#define ID_TOOL_CAPTURE_MONITOR_FIRST	32800
+#define ID_TOOL_CAPTURE_MONITOR_LAST	32815
 
 // 다음은 새 개체에 사용할 기본값입니다.
 //
@@ -25,6 +32,6 @@
 #define _APS_NEXT_RESOURCE_VALUE	129
 #define _APS_NEXT_CONTROL_VALUE		1000
 #define _APS_NEXT_SYMED_VALUE		101
-#define _APS_NEXT_COMMAND_VALUE		32779
+#define _APS_NEXT_COMMAND_VALUE		32816
 #endif
 #endif
