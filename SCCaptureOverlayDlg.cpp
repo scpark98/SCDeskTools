@@ -19,9 +19,9 @@ namespace
 	struct EnumCtx
 	{
 		POINT pt = {};
-		HWND  skip = NULL;
-		HWND  found = NULL;
-		RECT  found_rect = {};
+		HWND	skip = NULL;
+		HWND	found = NULL;
+		RECT	found_rect = {};
 	};
 
 	bool query_window_rect(HWND hwnd, RECT* out)
@@ -109,9 +109,9 @@ void CSCCaptureOverlayDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 
 	//screen coord → overlay client coord (virtual screen 좌상단 == 0,0)
 	D2D1_RECT_F r = D2D1::RectF(
-		float(m_target_rect_screen.left   - m_virtual_screen.left),
-		float(m_target_rect_screen.top    - m_virtual_screen.top),
-		float(m_target_rect_screen.right  - m_virtual_screen.left),
+		float(m_target_rect_screen.left	- m_virtual_screen.left),
+		float(m_target_rect_screen.top	- m_virtual_screen.top),
+		float(m_target_rect_screen.right	- m_virtual_screen.left),
 		float(m_target_rect_screen.bottom - m_virtual_screen.top));
 
 	ComPtr<ID2D1SolidColorBrush> br_stroke;

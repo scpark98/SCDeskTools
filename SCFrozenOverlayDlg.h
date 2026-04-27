@@ -25,6 +25,11 @@
 
 class CSCFrozenOverlayDlg : public CDialog
 {
+	//파생 클래스들이 IMPLEMENT_DYNAMIC(X, CSCFrozenOverlayDlg) 로 base 의 RUNTIME_CLASS 를 참조하므로
+	//베이스에서도 DYNAMIC 선언이 필요. 없으면 IMPLEMENT_DYNAMIC 매크로 전개 시
+	//`classCSCFrozenOverlayDlg` 식별자가 base 에 없다는 컴파일 에러 발생.
+	DECLARE_DYNAMIC(CSCFrozenOverlayDlg)
+
 public:
 	CSCFrozenOverlayDlg();
 	virtual ~CSCFrozenOverlayDlg();
@@ -37,7 +42,7 @@ public:
 	void		run_modal_loop(CWnd* caller_for_quit_propagation);
 
 	CRect		get_virtual_screen_rect() const { return m_virtual_screen; }
-	HBITMAP		get_frozen_hbitmap()      const { return m_frozen_hbmp; }	//virtual screen 좌상단 = (0,0)
+	HBITMAP		get_frozen_hbitmap()	const { return m_frozen_hbmp; }	//virtual screen 좌상단 = (0,0)
 
 protected:
 	CSCD2Context	m_d2;
@@ -54,7 +59,7 @@ protected:
 	//마우스 핸들러 — 기본은 no-op.
 	virtual void	on_mouse_down(UINT nFlags, CPoint pt) {}
 	virtual void	on_mouse_move(UINT nFlags, CPoint pt) {}
-	virtual void	on_mouse_up  (UINT nFlags, CPoint pt) {}
+	virtual void	on_mouse_up	(UINT nFlags, CPoint pt) {}
 
 	//우클릭 — 기본은 finish (취소 의미).
 	virtual void	on_right_click(CPoint pt) { finish(); }
@@ -89,8 +94,8 @@ private:
 	virtual BOOL	PreTranslateMessage(MSG* pMsg);
 	//OnOK / OnCancel: 다이얼로그 매니저가 ESC/Enter 를 IDCANCEL/IDOK 로 라우팅해도 finish() 로 통일.
 	//run_modal_loop 가 자체 디스패치라 PreTranslateMessage 가 우회되는 환경에서도 안전망.
-	virtual void	OnOK()      override { finish(); }
-	virtual void	OnCancel()  override { finish(); }
+	virtual void	OnOK()	override { finish(); }
+	virtual void	OnCancel()	override { finish(); }
 
 	DECLARE_MESSAGE_MAP()
 };

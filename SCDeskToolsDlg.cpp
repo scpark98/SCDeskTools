@@ -51,16 +51,16 @@ namespace
 	const ToolItem kTools[] =
 	{
 		//Capture
-		{ ID_TOOL_CAPTURE_FULLSCREEN, _T("전체 화면 캡처"),       _T("전체 화면 캡처"),         kCatCapture },
-		{ ID_TOOL_CAPTURE_WINDOW,     _T("창 캡처"),               _T("창 캡처"),                 kCatCapture },
-		{ ID_TOOL_CAPTURE_REGION,     _T("영역 캡처"),             _T("영역 캡처"),               kCatCapture },
-		{ ID_TOOL_PASTE_CLIPBOARD,    _T("클립보드 이미지 띠우기"),_T("클립보드 이미지 띠우기"),  kCatCapture },
+		{ ID_TOOL_CAPTURE_FULLSCREEN,	_T("전체 화면 캡처"),			_T("전체 화면 캡처"),			kCatCapture },
+		{ ID_TOOL_CAPTURE_WINDOW,		_T("창 캡처"),					_T("창 캡처"),					kCatCapture },
+		{ ID_TOOL_CAPTURE_REGION,		_T("영역 캡처"),					_T("영역 캡처"),					kCatCapture },
+		{ ID_TOOL_PASTE_CLIPBOARD,		_T("클립보드 이미지 띠우기"),		_T("클립보드 이미지 띠우기"),		kCatCapture },
 		//Color
-		{ ID_TOOL_COLOR_PICKER,       _T("컬러 피커..."),          _T("컬러 피커..."),            kCatColor },
-		{ ID_TOOL_DROPPER,            _T("화면 돋보기..."),        _T("화면 돋보기..."),          kCatColor },
+		{ ID_TOOL_COLOR_PICKER,			_T("컬러 피커"),					_T("컬러 피커"),					kCatColor },
+		{ ID_TOOL_DROPPER,				_T("화면 돋보기"),				_T("화면 돋보기"),				kCatColor },
 		//Measure
-		{ ID_TOOL_PROTRACTOR,         _T("각도기"),                _T("각도기"),                  kCatMeasure },
-		{ ID_TOOL_RULER,              _T("줄자"),                  _T("줄자"),                    kCatMeasure },
+		{ ID_TOOL_PROTRACTOR,			_T("각도기"),					_T("각도기"),					kCatMeasure },
+		{ ID_TOOL_RULER,				_T("줄자"),						_T("줄자"),						kCatMeasure },
 	};
 
 	struct CategoryInfo
@@ -71,9 +71,9 @@ namespace
 
 	const CategoryInfo kCategories[] =
 	{
-		{ kCatCapture, _T("캡처(&P)") },
-		{ kCatColor,   _T("색상(&C)") },
-		{ kCatMeasure, _T("측정(&M)") },
+		{ kCatCapture,	_T("캡처(&P)") },
+		{ kCatColor,	_T("색상(&C)") },
+		{ kCatMeasure,	_T("측정(&M)") },
 	};
 
 	//메인 창 기본 즐겨찾기. 사용자가 설정창에서 편집 시 레지스트리로 옮길 예정.
@@ -105,27 +105,27 @@ namespace
 	struct HotkeyItem
 	{
 		int			id;				//RegisterHotKey ID (per-window 1~0xBFFF)
-		UINT		tool_id;		//ID_TOOL_* — WM_COMMAND 으로 dispatch
+		UINT		tool_id;		//ID_TOOL_* ? WM_COMMAND 으로 dispatch
 		UINT		modifiers;		//MOD_ALT | MOD_SHIFT | ... (MOD_NOREPEAT 권장)
 		UINT		vkey;
 		LPCTSTR		description;	//등록 실패 알림 / 향후 설정 다이얼로그용
 	};
 
-	//모니터 캡처 단축키는 모니터 개수에 따라 동적 — kHotkeys 와 ID 충돌 피하려고 100 base 사용.
+	//모니터 캡처 단축키는 모니터 개수에 따라 동적 ? kHotkeys 와 ID 충돌 피하려고 100 base 사용.
 	//Alt+Shift+'1'..'9' 까지 최대 9 개 모니터 지원.
 	const int kMonitorHotkeyIdBase = 100;
 	const int kMonitorHotkeyMaxCount = 9;
 
 	const HotkeyItem kHotkeys[] =
 	{
-		{ 1, ID_TOOL_CAPTURE_WINDOW,     MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'S', _T("창 캡처 (Alt+Shift+S)") },
-		{ 2, ID_TOOL_CAPTURE_FULLSCREEN, MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'F', _T("전체 화면 캡처 (Alt+Shift+F)") },
-		{ 3, ID_TOOL_CAPTURE_REGION,     MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'R', _T("영역 캡처 (Alt+Shift+R)") },
-		{ 4, ID_TOOL_PASTE_CLIPBOARD,    MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'V', _T("클립보드 이미지 띠우기 (Alt+Shift+V)") },
-		{ 5, ID_TOOL_COLOR_PICKER,       MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'C', _T("컬러 피커 (Alt+Shift+C)") },
-		{ 6, ID_TOOL_DROPPER,            MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'M', _T("화면 돋보기 (Alt+Shift+M)") },
-		{ 7, ID_TOOL_PROTRACTOR,         MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'P', _T("각도기 (Alt+Shift+P)") },
-		{ 8, ID_TOOL_RULER,              MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'L', _T("줄자 (Alt+Shift+L)") },
+		{ 1,	ID_TOOL_CAPTURE_WINDOW,		MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'S',	_T("창 캡처 (Alt+Shift+S)") },
+		{ 2,	ID_TOOL_CAPTURE_FULLSCREEN,	MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'F',	_T("전체 화면 캡처 (Alt+Shift+F)") },
+		{ 3,	ID_TOOL_CAPTURE_REGION,		MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'R',	_T("영역 캡처 (Alt+Shift+R)") },
+		{ 4,	ID_TOOL_PASTE_CLIPBOARD,	MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'V',	_T("클립보드 이미지 띠우기 (Alt+Shift+V)") },
+		{ 5,	ID_TOOL_COLOR_PICKER,		MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'C',	_T("컬러 피커 (Alt+Shift+C)") },
+		{ 6,	ID_TOOL_DROPPER,			MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'M',	_T("화면 돋보기 (Alt+Shift+M)") },
+		{ 7,	ID_TOOL_PROTRACTOR,			MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'P',	_T("각도기 (Alt+Shift+P)") },
+		{ 8,	ID_TOOL_RULER,				MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'L',	_T("줄자 (Alt+Shift+L)") },
 	};
 
 	UINT find_tool_id_by_hotkey_id(int hotkey_id)
@@ -153,9 +153,9 @@ namespace
 	{
 		CString s;
 		if (modifiers & MOD_CONTROL) s += _T("Ctrl+");
-		if (modifiers & MOD_ALT)     s += _T("Alt+");
-		if (modifiers & MOD_SHIFT)   s += _T("Shift+");
-		if (modifiers & MOD_WIN)     s += _T("Win+");
+		if (modifiers & MOD_ALT)	s += _T("Alt+");
+		if (modifiers & MOD_SHIFT)	s += _T("Shift+");
+		if (modifiers & MOD_WIN)	s += _T("Win+");
 
 		if ((vkey >= 'A' && vkey <= 'Z') || (vkey >= '0' && vkey <= '9'))
 		{
@@ -192,7 +192,7 @@ public:
 #endif
 
 	protected:
-	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV 지원입니다.
+	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV 지원입니다.
 
 // 구현입니다.
 protected:
@@ -292,17 +292,19 @@ BOOL CSCDeskToolsDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// 큰 아이콘을 설정합니다.
 	SetIcon(m_hIcon, FALSE);		// 작은 아이콘을 설정합니다.
 
-	SetWindowText(_T("SCDeskTools"));
+	CString caption;
+	caption.Format(_T("SCDeskTools (ver %s)"), get_file_property());
+	SetWindowText(caption);
 
 	//기본 즐겨찾기 채우기 (추후: 레지스트리에서 읽기 → 설정창 편집 가능).
 	m_favorites.assign(std::begin(kDefaultFavorites), std::end(kDefaultFavorites));
 
-	//.rc 의 디폴트(480x325) 보다 작게 — 8 즐겨찾기 + 개발 종료 버튼이 깔끔히 들어가는 컴팩트 크기.
+	//.rc 의 디폴트(480x325) 보다 작게 ? 8 즐겨찾기 + 개발 종료 버튼이 깔끔히 들어가는 컴팩트 크기.
 	//build_buttons 가 GetClientRect 로 배치하므로 반드시 그 전에 호출.
 	{
 		//높이 = top_margin(14) + 4행 * btn_h(50) + 3 gap * 10 + bottom_margin(14) = 258.
 		//(개발 종료 버튼이 숨김 처리되어 그 공간을 그대로 도려냄.)
-		const int target_client_w = 320;
+		const int target_client_w = 400;
 		const int target_client_h = 258;
 		CRect target(0, 0, target_client_w, target_client_h);
 		::AdjustWindowRectEx(&target, GetStyle(), FALSE, GetExStyle());
@@ -333,12 +335,12 @@ BOOL CSCDeskToolsDlg::OnInitDialog()
 
 	RestoreWindowPosition(&theApp, this, _T(""), false, false);
 
-	//트레이 상주 앱 — 시작 시 메인 창 숨김. 트레이 더블클릭/단축키/우클릭 메뉴로 표시.
+	//트레이 상주 앱 ? 시작 시 메인 창 숨김. 트레이 더블클릭/단축키/우클릭 메뉴로 표시.
 	//OnInitDialog 안에서 ShowWindow(SW_HIDE) 호출하면 다이얼로그 매니저가 다시 보이게 만들 수 있어
 	//PostMessage 로 첫 페인트 직후 시점에 숨김 처리. (브리프 플래시 가능하지만 허용)
 	PostMessage(Message_HideOnStartup);
 
-	return TRUE;  // 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
+	return TRUE;	// 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
 }
 
 void CSCDeskToolsDlg::build_buttons()
@@ -351,12 +353,12 @@ void CSCDeskToolsDlg::build_buttons()
 	GetClientRect(rc_client);
 
 	const int margin = 14;
-	const int gap_x  = 10;
-	const int gap_y  = 10;
-	const int cols   = 2;
-	const int btn_w  = (rc_client.Width() - margin * 2 - gap_x * (cols - 1)) / cols;
+	const int gap_x	= 10;
+	const int gap_y	= 10;
+	const int cols	= 2;
+	const int btn_w	= (rc_client.Width() - margin * 2 - gap_x * (cols - 1)) / cols;
 	//두 줄 캡션 (기능명 / 글로벌 단축키) 수용 위해 한 줄짜리 36 → 50.
-	const int btn_h  = 50;
+	const int btn_h	= 50;
 
 	for (size_t i = 0; i < m_favorites.size(); ++i)
 	{
@@ -371,7 +373,7 @@ void CSCDeskToolsDlg::build_buttons()
 
 		//1행 = 기능명, 2행 = 글로벌 단축키. 단축키 미등록 항목은 1행만.
 		CString caption = tool->button_text;
-		CString hotkey  = hotkey_text_for_tool(tool->id);
+		CString hotkey	= hotkey_text_for_tool(tool->id);
 		if (!hotkey.IsEmpty())
 		{
 			caption += _T("\n");
@@ -397,13 +399,13 @@ void CSCDeskToolsDlg::build_exit_button()
 	GetClientRect(rc_client);
 
 	const int margin = 14;
-	const int btn_w  = 80;
-	const int btn_h  = 32;
+	const int btn_w	= 80;
+	const int btn_h	= 32;
 
 	CRect rc_btn(
-		rc_client.right  - margin - btn_w,
+		rc_client.right	- margin - btn_w,
 		rc_client.bottom - margin - btn_h,
-		rc_client.right  - margin,
+		rc_client.right	- margin,
 		rc_client.bottom - margin);
 
 	m_button_exit.Create(_T("종료"),
@@ -434,10 +436,10 @@ void CSCDeskToolsDlg::show_tools_popup_menu(CPoint pt_screen)
 			if (t.id == ID_TOOL_PASTE_CLIPBOARD && !clipboard_has_image())
 				flags |= MF_GRAYED;
 
-			//"기능명\tAlt+Shift+X" — Tab 이후 부분은 OS 가 메뉴 우측에 정렬해 표시.
+			//"기능명\tAlt+Shift+X" ? Tab 이후 부분은 OS 가 메뉴 우측에 정렬해 표시.
 			//단축키 미등록 항목은 Tab 자체를 생략.
 			CString item_text = t.menu_text;
-			CString hotkey    = hotkey_text_for_tool(t.id);
+			CString hotkey	= hotkey_text_for_tool(t.id);
 			if (!hotkey.IsEmpty())
 			{
 				item_text += _T("\t");
@@ -473,7 +475,7 @@ void CSCDeskToolsDlg::show_tools_popup_menu(CPoint pt_screen)
 
 	menu.AppendMenu(MF_SEPARATOR);
 	menu.AppendMenu(MF_STRING, ID_HELP_ABOUT, _T("정보(&A)..."));
-	menu.AppendMenu(MF_STRING, ID_SC_EXIT,   _T("종료(&X)"));
+	menu.AppendMenu(MF_STRING, ID_SC_EXIT,	_T("종료(&X)"));
 
 	//트레이 팝업 표준 처리: 메뉴 띄우기 전 SetForegroundWindow + 메뉴 항목 단축키 동작 보장.
 	SetForegroundWindow();
@@ -568,7 +570,7 @@ void CSCDeskToolsDlg::OnDestroy()
 
 void CSCDeskToolsDlg::register_global_hotkeys()
 {
-	//다른 앱이 이미 잡고 있는 조합은 등록 실패 — 실패 항목만 모아 트레이 풍선으로 알림.
+	//다른 앱이 이미 잡고 있는 조합은 등록 실패 ? 실패 항목만 모아 트레이 풍선으로 알림.
 	//RegisterHotKey TRUE 인데도 WM_HOTKEY 가 안 오면 다른 앱의 WH_KEYBOARD_LL hook 가로채기.
 	//(NVIDIA GeForce Experience, Xbox Game Bar, Discord, OBS 등이 흔한 범인.)
 	CString failed;
@@ -608,7 +610,7 @@ void CSCDeskToolsDlg::register_monitor_hotkeys()
 	//단일 모니터일 때는 등록 생략 (전체 화면 캡처와 동일하므로 단축키 낭비).
 	unregister_monitor_hotkeys();
 
-	enum_display_monitors();	//Common — g_monitors 채움
+	enum_display_monitors();	//Common ? g_monitors 채움
 	if (g_monitors.size() < 2)
 		return;
 
@@ -616,7 +618,7 @@ void CSCDeskToolsDlg::register_monitor_hotkeys()
 	for (int i = 0; i < n; ++i)
 	{
 		const UINT vkey = '1' + UINT(i);	//Alt+Shift+'1'..'9'
-		const int  id   = kMonitorHotkeyIdBase + i;
+		const int	id	= kMonitorHotkeyIdBase + i;
 		BOOL ok = ::RegisterHotKey(m_hWnd, id,
 			MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, vkey);
 		TRACE(_T("[hotkey] RegisterHotKey monitor %d Alt+Shift+%d -> %s (err=%lu)\n"),
@@ -634,7 +636,7 @@ void CSCDeskToolsDlg::unregister_monitor_hotkeys()
 
 LRESULT CSCDeskToolsDlg::on_hotkey(WPARAM wParam, LPARAM /*lParam*/)
 {
-	//기존 ON_COMMAND 핸들러로 위임 — 메뉴 / 버튼 / 단축키 단일 진입점 유지.
+	//기존 ON_COMMAND 핸들러로 위임 ? 메뉴 / 버튼 / 단축키 단일 진입점 유지.
 	const int hotkey_id = static_cast<int>(wParam);
 
 	//1) 정적 툴 단축키 (kHotkeys, id 1..8)
@@ -648,7 +650,7 @@ LRESULT CSCDeskToolsDlg::on_hotkey(WPARAM wParam, LPARAM /*lParam*/)
 
 	//2) 동적 모니터 단축키 (kMonitorHotkeyIdBase + i)
 	if (hotkey_id >= kMonitorHotkeyIdBase &&
-		hotkey_id <  kMonitorHotkeyIdBase + kMonitorHotkeyMaxCount)
+		hotkey_id <	kMonitorHotkeyIdBase + kMonitorHotkeyMaxCount)
 	{
 		const int monitor_idx = hotkey_id - kMonitorHotkeyIdBase;
 		const UINT mon_id = ID_TOOL_CAPTURE_MONITOR_FIRST + UINT(monitor_idx);
@@ -662,7 +664,7 @@ LRESULT CSCDeskToolsDlg::on_hotkey(WPARAM wParam, LPARAM /*lParam*/)
 
 LRESULT CSCDeskToolsDlg::on_display_change(WPARAM /*wParam*/, LPARAM /*lParam*/)
 {
-	//모니터 핫플러그·해상도 변경 — 모니터 캐시 갱신 + 단축키 재등록.
+	//모니터 핫플러그·해상도 변경 ? 모니터 캐시 갱신 + 단축키 재등록.
 	//정적 툴 단축키(kHotkeys) 는 디스플레이 무관이라 재등록 불필요.
 	register_monitor_hotkeys();
 	return 0;
@@ -676,8 +678,8 @@ void CSCDeskToolsDlg::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 	{
 		CRect rc;
 		GetWindowRect(rc);
-		point.x = rc.left + rc.Width()  / 2;
-		point.y = rc.top  + rc.Height() / 2;
+		point.x = rc.left + rc.Width()	/ 2;
+		point.y = rc.top	+ rc.Height() / 2;
 	}
 	show_tools_popup_menu(point);
 }
@@ -842,13 +844,13 @@ void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down
 	{
 		BYTE* mem = static_cast<BYTE*>(::GlobalLock(hg_dib));
 		BITMAPINFOHEADER* bih = reinterpret_cast<BITMAPINFOHEADER*>(mem);
-		bih->biSize        = sizeof(BITMAPINFOHEADER);
-		bih->biWidth       = w;
-		bih->biHeight      = h;	//양수 = bottom-up (CF_DIB 표준)
-		bih->biPlanes      = 1;
-		bih->biBitCount    = 32;
+		bih->biSize	= sizeof(BITMAPINFOHEADER);
+		bih->biWidth	= w;
+		bih->biHeight	= h;	//양수 = bottom-up (CF_DIB 표준)
+		bih->biPlanes	= 1;
+		bih->biBitCount	= 32;
 		bih->biCompression = BI_RGB;
-		bih->biSizeImage   = pixel_size;
+		bih->biSizeImage	= pixel_size;
 
 		BYTE* dst_pixels = mem + sizeof(BITMAPINFOHEADER);
 		for (int y = 0; y < h; ++y)
@@ -878,7 +880,7 @@ void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down
 CSCDeskToolsDlg::HideFloating::HideFloating(CSCDeskToolsDlg* d)
 	: dlg(d)
 {
-	main_was_visible   = (d->IsWindowVisible() && !d->IsIconic()) ? true : false;
+	main_was_visible	= (d->IsWindowVisible() && !d->IsIconic()) ? true : false;
 	picker_was_visible = (d->m_color_picker.GetSafeHwnd() && d->m_color_picker.IsWindowVisible()) ? true : false;
 
 	if (main_was_visible)
@@ -905,14 +907,14 @@ void CSCDeskToolsDlg::capture_screen_rect(const CRect& rc_screen)
 		return;
 
 	HDC hdc_screen = ::GetDC(NULL);
-	HDC hdc_mem    = ::CreateCompatibleDC(hdc_screen);
+	HDC hdc_mem	= ::CreateCompatibleDC(hdc_screen);
 
 	BITMAPINFO bmi = {};
-	bmi.bmiHeader.biSize        = sizeof(bmi.bmiHeader);
-	bmi.bmiHeader.biWidth       = w;
-	bmi.bmiHeader.biHeight      = -h;	//top-down
-	bmi.bmiHeader.biPlanes      = 1;
-	bmi.bmiHeader.biBitCount    = 32;
+	bmi.bmiHeader.biSize	= sizeof(bmi.bmiHeader);
+	bmi.bmiHeader.biWidth	= w;
+	bmi.bmiHeader.biHeight	= -h;	//top-down
+	bmi.bmiHeader.biPlanes	= 1;
+	bmi.bmiHeader.biBitCount	= 32;
 	bmi.bmiHeader.biCompression = BI_RGB;
 
 	void* bits = nullptr;
@@ -983,7 +985,7 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 
 	HWND hwnd = dlg.get_picked_hwnd();
 	CRect rc_highlight = dlg.get_picked_rect_screen();
-	CRect rc_virtual   = dlg.get_virtual_screen_rect();
+	CRect rc_virtual	= dlg.get_virtual_screen_rect();
 
 	//1) PrintWindow 시도. 결과 DIB 는 클립보드용으로 살아있게 유지 (성공 시 클립보드 소유권 이전).
 	CRect rc_window;
@@ -1006,7 +1008,7 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 	int pw_w = rc_window.Width();
 	int pw_h = rc_window.Height();
 	bool pw_ok = false;
-	int  pw_nonblack_pct = 0;
+	int	pw_nonblack_pct = 0;
 	HBITMAP hbmp_pw = NULL;
 
 	if (pw_w > 0 && pw_h > 0)
@@ -1015,11 +1017,11 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 		HDC hdc_mem = ::CreateCompatibleDC(hdc_screen);
 
 		BITMAPINFO bmi = {};
-		bmi.bmiHeader.biSize        = sizeof(bmi.bmiHeader);
-		bmi.bmiHeader.biWidth       = pw_w;
-		bmi.bmiHeader.biHeight      = -pw_h;
-		bmi.bmiHeader.biPlanes      = 1;
-		bmi.bmiHeader.biBitCount    = 32;
+		bmi.bmiHeader.biSize	= sizeof(bmi.bmiHeader);
+		bmi.bmiHeader.biWidth	= pw_w;
+		bmi.bmiHeader.biHeight	= -pw_h;
+		bmi.bmiHeader.biPlanes	= 1;
+		bmi.bmiHeader.biBitCount	= 32;
 		bmi.bmiHeader.biCompression = BI_RGB;
 
 		void* bits = nullptr;
@@ -1064,22 +1066,22 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 	if (pw_ok && hbmp_pw && rc_visible != rc_window)
 	{
 		const int dx = rc_visible.left - rc_window.left;
-		const int dy = rc_visible.top  - rc_window.top;
+		const int dy = rc_visible.top	- rc_window.top;
 		const int cw = rc_visible.Width();
 		const int ch = rc_visible.Height();
 
 		if (cw > 0 && ch > 0 && dx >= 0 && dy >= 0 && dx + cw <= pw_w && dy + ch <= pw_h)
 		{
 			HDC hdc_screen = ::GetDC(NULL);
-			HDC hdc_src    = ::CreateCompatibleDC(hdc_screen);
-			HDC hdc_dst    = ::CreateCompatibleDC(hdc_screen);
+			HDC hdc_src	= ::CreateCompatibleDC(hdc_screen);
+			HDC hdc_dst	= ::CreateCompatibleDC(hdc_screen);
 
 			BITMAPINFO bmi_c = {};
-			bmi_c.bmiHeader.biSize        = sizeof(bmi_c.bmiHeader);
-			bmi_c.bmiHeader.biWidth       = cw;
-			bmi_c.bmiHeader.biHeight      = -ch;
-			bmi_c.bmiHeader.biPlanes      = 1;
-			bmi_c.bmiHeader.biBitCount    = 32;
+			bmi_c.bmiHeader.biSize	= sizeof(bmi_c.bmiHeader);
+			bmi_c.bmiHeader.biWidth	= cw;
+			bmi_c.bmiHeader.biHeight	= -ch;
+			bmi_c.bmiHeader.biPlanes	= 1;
+			bmi_c.bmiHeader.biBitCount	= 32;
 			bmi_c.bmiHeader.biCompression = BI_RGB;
 
 			void* dst_bits = nullptr;
@@ -1118,11 +1120,11 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 			HDC hdc_dst = ::CreateCompatibleDC(hdc_screen);
 
 			BITMAPINFO bmi = {};
-			bmi.bmiHeader.biSize        = sizeof(bmi.bmiHeader);
-			bmi.bmiHeader.biWidth       = dst_w;
-			bmi.bmiHeader.biHeight      = -dst_h;
-			bmi.bmiHeader.biPlanes      = 1;
-			bmi.bmiHeader.biBitCount    = 32;
+			bmi.bmiHeader.biSize	= sizeof(bmi.bmiHeader);
+			bmi.bmiHeader.biWidth	= dst_w;
+			bmi.bmiHeader.biHeight	= -dst_h;
+			bmi.bmiHeader.biPlanes	= 1;
+			bmi.bmiHeader.biBitCount	= 32;
 			bmi.bmiHeader.biCompression = BI_RGB;
 
 			void* dst_bits = nullptr;
@@ -1133,7 +1135,7 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 			//프리즈 DIB 좌표 = virtual screen 기준 0,0. screen rect 를 좌상단 기준 좌표로 변환.
 			::BitBlt(hdc_dst, 0, 0, dst_w, dst_h,
 				hdc_src, rc_highlight.left - rc_virtual.left,
-				         rc_highlight.top  - rc_virtual.top,
+				         rc_highlight.top	- rc_virtual.top,
 				SRCCOPY);
 
 			::SelectObject(hdc_src, old_src);
@@ -1144,7 +1146,7 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 		}
 	}
 
-	//3) 클립보드 + floating note — 헬퍼로 일원화. PrintWindow 성공이면 hbmp_pw, 아니면 hbmp_fallback.
+	//3) 클립보드 + floating note ? 헬퍼로 일원화. PrintWindow 성공이면 hbmp_pw, 아니면 hbmp_fallback.
 	HBITMAP hbmp_for_clip = pw_ok ? hbmp_pw : hbmp_fallback;
 	const int w_clip = pw_ok ? pw_w : rc_highlight.Width();
 	const int h_clip = pw_ok ? pw_h : rc_highlight.Height();
@@ -1164,7 +1166,7 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 	}
 
 	//우리가 소유한 HBITMAP 들은 클립보드 / 노트와 무관하게 모두 정리.
-	if (hbmp_pw)       ::DeleteObject(hbmp_pw);
+	if (hbmp_pw)	::DeleteObject(hbmp_pw);
 	if (hbmp_fallback) ::DeleteObject(hbmp_fallback);
 }
 
@@ -1185,7 +1187,7 @@ void CSCDeskToolsDlg::OnToolCaptureRegion()
 	if (!dlg.is_picked())
 		return;
 
-	CRect rc_sel     = dlg.get_picked_rect_screen();
+	CRect rc_sel	= dlg.get_picked_rect_screen();
 	CRect rc_virtual = dlg.get_virtual_screen_rect();
 	HBITMAP hbmp_src = dlg.get_frozen_hbitmap();
 
@@ -1196,15 +1198,15 @@ void CSCDeskToolsDlg::OnToolCaptureRegion()
 
 	//1) 프리즈 DIB 의 sub-region 을 새 32bpp top-down DIB section 으로 BitBlt.
 	HDC hdc_screen = ::GetDC(NULL);
-	HDC hdc_src    = ::CreateCompatibleDC(hdc_screen);
-	HDC hdc_dst    = ::CreateCompatibleDC(hdc_screen);
+	HDC hdc_src	= ::CreateCompatibleDC(hdc_screen);
+	HDC hdc_dst	= ::CreateCompatibleDC(hdc_screen);
 
 	BITMAPINFO bmi = {};
-	bmi.bmiHeader.biSize        = sizeof(bmi.bmiHeader);
-	bmi.bmiHeader.biWidth       = dst_w;
-	bmi.bmiHeader.biHeight      = -dst_h;	//top-down
-	bmi.bmiHeader.biPlanes      = 1;
-	bmi.bmiHeader.biBitCount    = 32;
+	bmi.bmiHeader.biSize	= sizeof(bmi.bmiHeader);
+	bmi.bmiHeader.biWidth	= dst_w;
+	bmi.bmiHeader.biHeight	= -dst_h;	//top-down
+	bmi.bmiHeader.biPlanes	= 1;
+	bmi.bmiHeader.biBitCount	= 32;
 	bmi.bmiHeader.biCompression = BI_RGB;
 
 	void* dst_bits = nullptr;
@@ -1215,7 +1217,7 @@ void CSCDeskToolsDlg::OnToolCaptureRegion()
 	::BitBlt(hdc_dst, 0, 0, dst_w, dst_h,
 		hdc_src,
 		rc_sel.left - rc_virtual.left,
-		rc_sel.top  - rc_virtual.top,
+		rc_sel.top	- rc_virtual.top,
 		SRCCOPY);
 
 	::SelectObject(hdc_src, old_src);
@@ -1224,7 +1226,7 @@ void CSCDeskToolsDlg::OnToolCaptureRegion()
 	::DeleteDC(hdc_dst);
 	::ReleaseDC(NULL, hdc_screen);
 
-	//2) 클립보드 + floating note — 헬퍼로 일원화.
+	//2) 클립보드 + floating note ? 헬퍼로 일원화.
 	if (hbmp_dst && dst_bits)
 	{
 		POINT pos = { rc_sel.left, rc_sel.top };
@@ -1268,7 +1270,7 @@ void CSCDeskToolsDlg::OnToolRuler()
 void CSCDeskToolsDlg::OnToolPasteClipboard()
 {
 	//클립보드의 이미지 (CF_DIB) 를 읽어 floating note 로 띠움.
-	//테스트용으로 매번 캡처할 필요 없게 한다 — 다른 앱에서 Ctrl+C 한 이미지를 붙여넣기.
+	//테스트용으로 매번 캡처할 필요 없게 한다 ? 다른 앱에서 Ctrl+C 한 이미지를 붙여넣기.
 	if (!::OpenClipboard(m_hWnd))
 	{
 		AfxMessageBox(_T("클립보드 열기 실패"));

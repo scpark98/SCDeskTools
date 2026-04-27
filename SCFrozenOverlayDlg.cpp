@@ -3,6 +3,8 @@
 #include "pch.h"
 #include "SCFrozenOverlayDlg.h"
 
+IMPLEMENT_DYNAMIC(CSCFrozenOverlayDlg, CDialog)
+
 BEGIN_MESSAGE_MAP(CSCFrozenOverlayDlg, CDialog)
 	ON_WM_PAINT()
 	ON_WM_ERASEBKGND()
@@ -29,10 +31,10 @@ CSCFrozenOverlayDlg::~CSCFrozenOverlayDlg()
 
 bool CSCFrozenOverlayDlg::create(CWnd* parent)
 {
-	m_virtual_screen.left   = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
-	m_virtual_screen.top    = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
-	m_virtual_screen.right  = m_virtual_screen.left + ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
-	m_virtual_screen.bottom = m_virtual_screen.top  + ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
+	m_virtual_screen.left	= ::GetSystemMetrics(SM_XVIRTUALSCREEN);
+	m_virtual_screen.top	= ::GetSystemMetrics(SM_YVIRTUALSCREEN);
+	m_virtual_screen.right	= m_virtual_screen.left + ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	m_virtual_screen.bottom = m_virtual_screen.top	+ ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
 	LPCTSTR wnd_class = ::AfxRegisterWndClass(0, ::LoadCursor(NULL, IDC_CROSS));
 
@@ -72,14 +74,14 @@ bool CSCFrozenOverlayDlg::capture_virtual_screen_to_d2()
 		return false;
 
 	HDC hdc_screen = ::GetDC(NULL);
-	HDC hdc_mem    = ::CreateCompatibleDC(hdc_screen);
+	HDC hdc_mem	= ::CreateCompatibleDC(hdc_screen);
 
 	BITMAPINFO bmi = {};
-	bmi.bmiHeader.biSize        = sizeof(bmi.bmiHeader);
-	bmi.bmiHeader.biWidth       = w;
-	bmi.bmiHeader.biHeight      = -h;	//top-down
-	bmi.bmiHeader.biPlanes      = 1;
-	bmi.bmiHeader.biBitCount    = 32;
+	bmi.bmiHeader.biSize	= sizeof(bmi.bmiHeader);
+	bmi.bmiHeader.biWidth	= w;
+	bmi.bmiHeader.biHeight	= -h;	//top-down
+	bmi.bmiHeader.biPlanes	= 1;
+	bmi.bmiHeader.biBitCount	= 32;
 	bmi.bmiHeader.biCompression = BI_RGB;
 
 	void* bits = nullptr;

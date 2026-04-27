@@ -22,7 +22,7 @@ protected:
 	virtual void	on_overlay_paint(ID2D1DeviceContext* d2dc) override;
 	virtual void	on_mouse_down(UINT nFlags, CPoint pt) override;
 	virtual void	on_mouse_move(UINT nFlags, CPoint pt) override;
-	virtual void	on_mouse_up  (UINT nFlags, CPoint pt) override;
+	virtual void	on_mouse_up	(UINT nFlags, CPoint pt) override;
 	virtual bool	on_key_down(UINT nChar) override;
 	virtual HCURSOR	query_cursor(CPoint pt) override;
 
@@ -45,8 +45,8 @@ private:
 	Phase		m_phase = Phase::kPlaceArmA;
 
 	CPoint		m_vertex = {};
-	CPoint		m_arm_a  = {};
-	CPoint		m_arm_b  = {};
+	CPoint		m_arm_a	= {};
+	CPoint		m_arm_b	= {};
 
 	HitTarget	m_drag_target = kHitNone;
 	CPoint		m_drag_grab_offset = {};

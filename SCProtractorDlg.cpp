@@ -14,10 +14,10 @@ END_MESSAGE_MAP()
 
 namespace
 {
-	const int kHandleRadius     = 7;
-	const int kHandleHitRadius  = 12;
-	const int kArcRadius        = 60;
-	const double kPi            = 3.14159265358979323846;
+	const int kHandleRadius	= 7;
+	const int kHandleHitRadius	= 12;
+	const int kArcRadius	= 60;
+	const double kPi	= 3.14159265358979323846;
 
 	double dist_sq(POINT a, POINT b)
 	{
@@ -40,7 +40,7 @@ double CSCProtractorDlg::calc_angle_degrees() const
 		return 0.0;
 
 	double dot = (ax * bx + ay * by) / (la * lb);
-	if (dot > 1.0)  dot = 1.0;
+	if (dot > 1.0)	dot = 1.0;
 	if (dot < -1.0) dot = -1.0;
 	return acos(dot) * 180.0 / kPi;
 }
@@ -71,8 +71,8 @@ void CSCProtractorDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 	{
 	case Phase::kPlaceArmA:
 		m_vertex = point;
-		m_arm_a  = point;
-		m_arm_b  = point;
+		m_arm_a	= point;
+		m_arm_b	= point;
 		Invalidate(FALSE);
 		return;
 
@@ -223,15 +223,15 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	ComPtr<ID2D1SolidColorBrush> br_handle_stroke;
 	ComPtr<ID2D1SolidColorBrush> br_arc;
 	ComPtr<ID2D1SolidColorBrush> br_arc_fill;
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFF3B30, 1.00f),            br_arm.GetAddressOf());
+	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFF3B30, 1.00f),	br_arm.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_handle_fill.GetAddressOf());
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFF3B30, 1.00f),            br_handle_stroke.GetAddressOf());
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFFD60A, 1.00f),            br_arc.GetAddressOf());
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFFD60A, 0.25f),            br_arc_fill.GetAddressOf());
+	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFF3B30, 1.00f),	br_handle_stroke.GetAddressOf());
+	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFFD60A, 1.00f),	br_arc.GetAddressOf());
+	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFFD60A, 0.25f),	br_arc_fill.GetAddressOf());
 
 	const D2D1_POINT_2F p_v = D2D1::Point2F(float(m_vertex.x), float(m_vertex.y));
-	const D2D1_POINT_2F p_a = D2D1::Point2F(float(m_arm_a.x),  float(m_arm_a.y));
-	const D2D1_POINT_2F p_b = D2D1::Point2F(float(m_arm_b.x),  float(m_arm_b.y));
+	const D2D1_POINT_2F p_a = D2D1::Point2F(float(m_arm_a.x),	float(m_arm_a.y));
+	const D2D1_POINT_2F p_b = D2D1::Point2F(float(m_arm_b.x),	float(m_arm_b.y));
 
 	d2dc->DrawLine(p_v, p_a, br_arm.Get(), 2.0f);
 
@@ -260,8 +260,8 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 				arc_radius = 16.0;
 
 			double sweep = angle_b - angle_a;
-			while (sweep <  0.0)         sweep += 2.0 * kPi;
-			while (sweep >= 2.0 * kPi)   sweep -= 2.0 * kPi;
+			while (sweep <	0.0)	sweep += 2.0 * kPi;
+			while (sweep >= 2.0 * kPi)	sweep -= 2.0 * kPi;
 			bool clockwise = true;
 			if (sweep > kPi)
 			{
@@ -290,7 +290,7 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 					sink->AddLine(start);
 					D2D1_ARC_SEGMENT seg = {};
 					seg.point = end;
-					seg.size  = D2D1::SizeF(float(arc_radius), float(arc_radius));
+					seg.size	= D2D1::SizeF(float(arc_radius), float(arc_radius));
 					seg.rotationAngle = 0.0f;
 					seg.sweepDirection = D2D1_SWEEP_DIRECTION_CLOCKWISE;
 					seg.arcSize = D2D1_ARC_SIZE_SMALL;
@@ -330,10 +330,10 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 				const float lh = 28.0f;
 				const float full_w = float(m_virtual_screen.Width());
 				const float full_h = float(m_virtual_screen.Height());
-				if (lx < 0)             lx = 0;
-				if (ly < 0)             ly = 0;
-				if (lx + lw > full_w)   lx = full_w - lw;
-				if (ly + lh > full_h)   ly = full_h - lh;
+				if (lx < 0)	lx = 0;
+				if (ly < 0)	ly = 0;
+				if (lx + lw > full_w)	lx = full_w - lw;
+				if (ly + lh > full_h)	ly = full_h - lh;
 
 				ComPtr<ID2D1SolidColorBrush> br_lbl_back;
 				ComPtr<ID2D1SolidColorBrush> br_lbl_text;
@@ -352,7 +352,7 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 
 	auto draw_handle = [&](D2D1_POINT_2F p)
 	{
-		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(kHandleRadius),     float(kHandleRadius));
+		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(kHandleRadius),	float(kHandleRadius));
 		D2D1_ELLIPSE e_inner = D2D1::Ellipse(p, float(kHandleRadius - 2), float(kHandleRadius - 2));
 		d2dc->FillEllipse(e_outer, br_handle_stroke.Get());
 		d2dc->FillEllipse(e_inner, br_handle_fill.Get());

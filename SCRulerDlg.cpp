@@ -14,10 +14,10 @@ END_MESSAGE_MAP()
 
 namespace
 {
-	const int kHandleRadius     = 7;
-	const int kHandleHitRadius  = 12;
-	const int kLineHitDist      = 6;
-	const double kPi            = 3.14159265358979323846;
+	const int kHandleRadius	= 7;
+	const int kHandleHitRadius	= 12;
+	const int kLineHitDist	= 6;
+	const double kPi	= 3.14159265358979323846;
 
 	double dist_sq(POINT a, POINT b)
 	{
@@ -87,7 +87,7 @@ void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 	{
 		//최초: start 잡고 drag 시작.
 		m_start = point;
-		m_end   = point;
+		m_end	= point;
 		Invalidate(FALSE);
 		return;
 	}
@@ -100,7 +100,7 @@ void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 		m_phase = Phase::kPlaceEnd;
 		m_placed = false;
 		m_start = point;
-		m_end   = point;
+		m_end	= point;
 		Invalidate(FALSE);
 		return;
 	}
@@ -142,7 +142,7 @@ void CSCRulerDlg::on_mouse_move(UINT nFlags, CPoint point)
 			CPoint new_start = point + m_drag_grab_offset;
 			CPoint delta = new_start - m_start;
 			m_start += delta;
-			m_end   += delta;
+			m_end	+= delta;
 			Invalidate(FALSE);
 		}
 	}
@@ -217,7 +217,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	}
 
 	const D2D1_POINT_2F p_s = D2D1::Point2F(float(m_start.x), float(m_start.y));
-	const D2D1_POINT_2F p_e = D2D1::Point2F(float(m_end.x),   float(m_end.y));
+	const D2D1_POINT_2F p_e = D2D1::Point2F(float(m_end.x),	float(m_end.y));
 
 	double dx = double(m_end.x - m_start.x);
 	double dy = double(m_end.y - m_start.y);
@@ -227,7 +227,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	ComPtr<ID2D1SolidColorBrush> br_tick;
 	ComPtr<ID2D1SolidColorBrush> br_handle_fill;
 	ComPtr<ID2D1SolidColorBrush> br_handle_stroke;
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x00B894, 1.00f), br_line.GetAddressOf());          //teal
+	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x00B894, 1.00f), br_line.GetAddressOf());	//teal
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 0.85f), br_tick.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_handle_fill.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x00B894, 1.00f), br_handle_stroke.GetAddressOf());
@@ -240,22 +240,22 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		double ux = dx / length;	//unit vector along line
 		double uy = dy / length;
 		double nx = -uy;			//perpendicular (one side)
-		double ny =  ux;
+		double ny =	ux;
 
 		const int step_minor = 10;
-		const int step_mid   = 50;
+		const int step_mid	= 50;
 		const int step_major = 100;
-		const int len_minor  = 4;
-		const int len_mid    = 7;
-		const int len_major  = 11;
+		const int len_minor	= 4;
+		const int len_mid	= 7;
+		const int len_major	= 11;
 
 		const int total = int(length);
 		for (int i = step_minor; i < total; i += step_minor)
 		{
 			int tick_len;
-			if (i % step_major == 0)      tick_len = len_major;
-			else if (i % step_mid == 0)   tick_len = len_mid;
-			else                          tick_len = len_minor;
+			if (i % step_major == 0)	tick_len = len_major;
+			else if (i % step_mid == 0)	tick_len = len_mid;
+			else	tick_len = len_minor;
 
 			D2D1_POINT_2F base = D2D1::Point2F(
 				float(m_start.x + ux * i),
@@ -316,10 +316,10 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			//화면 가장자리 클램프.
 			const float full_w = float(m_virtual_screen.Width());
 			const float full_h = float(m_virtual_screen.Height());
-			if (lx < 0)             lx = 0;
-			if (ly < 0)             ly = 0;
-			if (lx + lw > full_w)   lx = full_w - lw;
-			if (ly + lh > full_h)   ly = full_h - lh;
+			if (lx < 0)	lx = 0;
+			if (ly < 0)	ly = 0;
+			if (lx + lw > full_w)	lx = full_w - lw;
+			if (ly + lh > full_h)	ly = full_h - lh;
 
 			ComPtr<ID2D1SolidColorBrush> br_lbl_back;
 			ComPtr<ID2D1SolidColorBrush> br_lbl_text;
@@ -338,7 +338,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	//endpoint handles.
 	auto draw_handle = [&](D2D1_POINT_2F p)
 	{
-		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(kHandleRadius),     float(kHandleRadius));
+		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(kHandleRadius),	float(kHandleRadius));
 		D2D1_ELLIPSE e_inner = D2D1::Ellipse(p, float(kHandleRadius - 2), float(kHandleRadius - 2));
 		d2dc->FillEllipse(e_outer, br_handle_stroke.Get());
 		d2dc->FillEllipse(e_inner, br_handle_fill.Get());

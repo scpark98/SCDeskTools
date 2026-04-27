@@ -22,7 +22,7 @@ protected:
 	virtual void	on_overlay_paint(ID2D1DeviceContext* d2dc) override;
 	virtual void	on_mouse_down(UINT nFlags, CPoint pt) override;
 	virtual void	on_mouse_move(UINT nFlags, CPoint pt) override;
-	virtual void	on_mouse_up  (UINT nFlags, CPoint pt) override;
+	virtual void	on_mouse_up	(UINT nFlags, CPoint pt) override;
 	virtual HCURSOR	query_cursor(CPoint pt) override;
 
 private:
@@ -44,7 +44,7 @@ private:
 	bool		m_placed = false;	//PlaceEnd → Edit 로 한 번이라도 진입했는지
 
 	CPoint		m_start = {};
-	CPoint		m_end   = {};
+	CPoint		m_end	= {};
 
 	HitTarget	m_drag_target = kHitNone;
 	CPoint		m_drag_grab_offset = {};	//평행이동 시 마우스와 잡은 점의 차이

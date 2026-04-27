@@ -15,9 +15,9 @@ class CSCCaptureOverlayDlg : public CSCFrozenOverlayDlg
 public:
 	CSCCaptureOverlayDlg() = default;
 
-	bool	is_picked()                const { return m_picked; }
-	CRect	get_picked_rect_screen()   const { return m_picked_rect_screen; }
-	HWND	get_picked_hwnd()          const { return m_picked_hwnd; }
+	bool	is_picked()	const { return m_picked; }
+	CRect	get_picked_rect_screen()	const { return m_picked_rect_screen; }
+	HWND	get_picked_hwnd()	const { return m_picked_hwnd; }
 
 protected:
 	virtual void	on_overlay_paint(ID2D1DeviceContext* d2dc) override;

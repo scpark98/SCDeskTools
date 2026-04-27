@@ -78,10 +78,10 @@ bool CSCRegionCaptureDlg::on_key_down(UINT nChar)
 	int dx = 0, dy = 0;
 	switch (nChar)
 	{
-	case VK_LEFT:  dx = -1; break;
-	case VK_RIGHT: dx =  1; break;
-	case VK_UP:    dy = -1; break;
-	case VK_DOWN:  dy =  1; break;
+	case VK_LEFT:	dx = -1; break;
+	case VK_RIGHT: dx =	1; break;
+	case VK_UP:	dy = -1; break;
+	case VK_DOWN:	dy =	1; break;
 	default:
 		return CSCFrozenOverlayDlg::on_key_down(nChar);	//ESC 등은 base 가 처리
 	}
@@ -107,7 +107,7 @@ void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	ComPtr<ID2D1SolidColorBrush> br_mask;
 	ComPtr<ID2D1SolidColorBrush> br_stroke;
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.40f), br_mask.GetAddressOf());
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x4169E1, 1.00f),            br_stroke.GetAddressOf());	//RoyalBlue
+	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x4169E1, 1.00f),	br_stroke.GetAddressOf());	//RoyalBlue
 
 	if (!m_dragging)
 	{
@@ -123,10 +123,10 @@ void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	const float b = float(sel.bottom);
 
 	//선택 영역 외부 4분할 마스크.
-	d2dc->FillRectangle(D2D1::RectF(0, 0, full_w,  t),      br_mask.Get());
-	d2dc->FillRectangle(D2D1::RectF(0, b, full_w,  full_h), br_mask.Get());
-	d2dc->FillRectangle(D2D1::RectF(0, t, l,       b),      br_mask.Get());
-	d2dc->FillRectangle(D2D1::RectF(r, t, full_w,  b),      br_mask.Get());
+	d2dc->FillRectangle(D2D1::RectF(0, 0, full_w,	t),	br_mask.Get());
+	d2dc->FillRectangle(D2D1::RectF(0, b, full_w,	full_h), br_mask.Get());
+	d2dc->FillRectangle(D2D1::RectF(0, t, l,	b),	br_mask.Get());
+	d2dc->FillRectangle(D2D1::RectF(r, t, full_w,	b),	br_mask.Get());
 
 	//선택 보더.
 	d2dc->DrawRectangle(D2D1::RectF(l, t, r, b), br_stroke.Get(), 2.0f);
