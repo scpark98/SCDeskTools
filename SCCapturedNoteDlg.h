@@ -66,6 +66,10 @@ private:
 	bool			m_initialized = false;
 	BYTE			m_alpha = 255;	//Ctrl+wheel 로 조정. 64 ~ 255 범위 (완전 투명 방지).
 
+	//마우스 호버 위치의 이미지 픽셀 좌표. (-1, -1) = 이미지 영역 밖이거나 미초기화.
+	//OnNcMouseMove 에서 갱신 (OnNcHitTest 가 client 영역을 HTCAPTION 으로 반환하므로 일반 이동도 NC 경로로 옴).
+	Gdiplus::PointF	m_hover_pixel = Gdiplus::PointF(-1.0f, -1.0f);
+
 	bool			init_with_image(const BYTE* bgra, int w, int h, const POINT* pos_screen);
 	void			show_context_menu(CPoint pt_screen);
 	void			execute_cmd(int cmd);	//메뉴 항목과 단축키가 공유하는 명령 디스패처
@@ -86,4 +90,5 @@ public:
 	afx_msg BOOL OnNcActivate(BOOL bActive);
 	afx_msg void OnNcMouseMove(UINT nHitTest, CPoint point);
 	afx_msg void OnBnClickedCloseButton();
+	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
 };

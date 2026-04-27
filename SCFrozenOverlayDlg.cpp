@@ -36,7 +36,8 @@ bool CSCFrozenOverlayDlg::create(CWnd* parent)
 	m_virtual_screen.right	= m_virtual_screen.left + ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	m_virtual_screen.bottom = m_virtual_screen.top	+ ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-	LPCTSTR wnd_class = ::AfxRegisterWndClass(0, ::LoadCursor(NULL, IDC_CROSS));
+	//CS_DBLCLKS — 파생(영역 캡처)이 더블클릭으로 확정 액션을 받기 위해 필요. 없으면 WM_LBUTTONDBLCLK 미발송.
+	LPCTSTR wnd_class = ::AfxRegisterWndClass(CS_DBLCLKS, ::LoadCursor(NULL, IDC_CROSS));
 
 	BOOL ok = CreateEx(
 		WS_EX_TOPMOST | WS_EX_TOOLWINDOW,

@@ -18,6 +18,7 @@ BEGIN_MESSAGE_MAP(CSCCapturedNoteDlg, CDialog)
 	ON_WM_NCMOUSEMOVE()
 	ON_REGISTERED_MESSAGE(Message_CGdiButton, &CSCCapturedNoteDlg::on_message_CGdiButton)
 	ON_BN_CLICKED(kIdBtnClose, &CSCCapturedNoteDlg::OnBnClickedCloseButton)
+	ON_WM_MOUSEMOVE()
 END_MESSAGE_MAP()
 
 CSCCapturedNoteDlg::CSCCapturedNoteDlg() : CDialog()
@@ -380,29 +381,11 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 
 	if (pMsg->message == WM_MOUSEMOVE)
 	{
+		//여기에 들어오는 경우는 우측 상단에 표시된 닫기버튼에서 마우스가 움직일 때 뿐이다.
+		//dlg에서 마우스를 움직이면 HTCAPTION으로 매핑하므로 NcMouseMove가 발생하고
+		//shift를 누르면 CSCCapturedNoteDlg::OnMouseMove() 함수가 호출된다.
 		TRACE(_T("PreTranslateMessage, WM_MOUSEMOVE\n"));
 	}
-	/*
-		//마우스 이동 시 닫기 버튼 노출 제어. 이미지 가장자리 근처로 마우스가 오면 버튼이 나타나고 멀어지면 사라진다.
-		//버튼이 마우스에 가려지는 경우가 있는데, 이 경우는 버튼이 항상 보이는 게 낫다고 판단하여 노출 유지.
-		POINT pt = { LOWORD(pMsg->lParam), HIWORD(pMsg->lParam) };
-		ClientToScreen(&pt);
-		CRect rc;
-		GetWindowRect(rc);
-		if (m_button_close.GetSafeHwnd())
-		{
-			if (m_button_close.IsWindowVisible() == false && pt.x > rc.right - 32 && pt.y < rc.top + 32)
-				m_button_close.ShowWindow(SW_SHOW);
-			else if (m_button_close.IsWindowVisible() && (pt.x <= rc.right - 32 || pt.y >= rc.top + 32))
-				m_button_close.ShowWindow(SW_HIDE);
-		}
-	}
-	//휠 = 줌. SCD2ImageDlg simple_mode 는 자체 휠 처리 X.
-	//커서 아래의 이미지 픽셀이 줌 후에도 같은 화면 위치에 머무르도록 offset 보정.
-	//   zoom_after = zoom_before * ratio
-	//   원하는 화면 위치 cur 가 그대로 유지되려면:
-	//   dx = (cur.x - rc_before.left) * (1 - ratio)   (sy 도 동일)
-	*/
 	else if (pMsg->message == WM_MOUSEWHEEL)
 	{
 		short zDelta = static_cast<short>(HIWORD(pMsg->wParam));
@@ -555,21 +538,23 @@ void CSCCapturedNoteDlg::OnBnClickedCloseButton()
 
 void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 {
-	return;
-
-	//m_img_dlg 의 OnPaint 가 D2D BeginDraw / EndDraw 사이에서 호출 → 같은 frame 에 오버레이.
-	//테스트용 빨간 사각형 (좌상단 20,20 부터 100x60).
 	if (!d2dc)
 		return;
 
-//	if (m_pt_mouse)
-	ComPtr<ID2D1SolidColorBrush> br_red;
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Red, 1.0f), br_red.GetAddressOf());
-	if (!br_red)
+	if (m_hover_pixel.X < 0.0f || m_hover_pixel.Y < 0.0f)
 		return;
 
-	D2D1_RECT_F r = D2D1::RectF(20.0f, 20.0f, 120.0f, 80.0f);
-	d2dc->DrawRectangle(r, br_red.Get(), 3.0f);
+	CRect rc;
+	m_img_dlg.GetClientRect(&rc);
+
+	WCHAR text[64];
+	swprintf_s(text, L"(%d, %d)", int(m_hover_pixel.X), int(m_hover_pixel.Y));
+
+	const int margin = 6;
+	draw_text(d2dc, CRect(rc.left, rc.top, rc.right - margin, rc.bottom - margin), text,
+		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,
+		1.0f, DT_RIGHT | DT_BOTTOM);
 }
 
 void CSCCapturedNoteDlg::OnNcMouseMove(UINT nHitTest, CPoint point)
@@ -587,6 +572,23 @@ void CSCCapturedNoteDlg::OnNcMouseMove(UINT nHitTest, CPoint point)
 		m_button_close.ShowWindow(SW_SHOW);
 	else
 		m_button_close.ShowWindow(SW_HIDE);
+
+	//호버 픽셀 좌표 갱신 — m_img_dlg client 가 NoteDlg client 와 동일 (0,0 부터 전체 차지).
+	if (m_img_w > 0 && m_img_h > 0)
+	{
+		Gdiplus::PointF prev = m_hover_pixel;
+
+		float ix, iy;
+		get_real_coord_from_screen_coord(m_img_dlg.get_displayed_rect(), m_img_w,
+			(float)point.x, (float)point.y, &ix, &iy);
+		if (ix >= 0.0f && ix < (float)m_img_w && iy >= 0.0f && iy < (float)m_img_h)
+			m_hover_pixel = Gdiplus::PointF(ix, iy);
+		else
+			m_hover_pixel = Gdiplus::PointF(-1.0f, -1.0f);
+
+		if (prev.X != m_hover_pixel.X || prev.Y != m_hover_pixel.Y)
+			m_img_dlg.Invalidate(FALSE);
+	}
 
 	CDialog::OnNcMouseMove(nHitTest, point);
 }
@@ -606,4 +608,9 @@ LRESULT CSCCapturedNoteDlg::on_message_CGdiButton(WPARAM wParam, LPARAM lParam)
 	}
 
 	return 0;
+}
+
+void CSCCapturedNoteDlg::OnMouseMove(UINT nFlags, CPoint point)
+{
+	CDialog::OnMouseMove(nFlags, point);
 }

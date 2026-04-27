@@ -2,6 +2,7 @@
 
 #include "pch.h"
 #include "SCRegionCaptureDlg.h"
+#include "Common/Functions.h"
 
 #include <utility>
 #include <dwrite.h>
@@ -11,13 +12,25 @@ IMPLEMENT_DYNAMIC(CSCRegionCaptureDlg, CSCFrozenOverlayDlg)
 
 BEGIN_MESSAGE_MAP(CSCRegionCaptureDlg, CSCFrozenOverlayDlg)
 	ON_WM_SETCURSOR()
+	ON_WM_LBUTTONDBLCLK()
 END_MESSAGE_MAP()
 
 BOOL CSCRegionCaptureDlg::OnSetCursor(CWnd* /*pWnd*/, UINT /*nHitTest*/, UINT /*message*/)
 {
-	//WM_SETCURSOR 직접 처리 — base 의 virtual query_cursor 체인이 우회되는 환경에서도
-	//확실히 십자 커서. nHitTest 무시하고 무조건 cross.
-	::SetCursor(::LoadCursor(NULL, IDC_CROSS));
+	//base 의 virtual query_cursor 체인이 SetCapture 환경에서 우회될 수 있어 직접 SetCursor.
+	HCURSOR hc;
+	if (m_phase == Phase::kEdit)
+	{
+		POINT pt;
+		::GetCursorPos(&pt);
+		ScreenToClient(&pt);
+		hc = ::LoadCursor(NULL, cursor_id_for_hit(hit_test(CPoint(pt))));
+	}
+	else
+	{
+		hc = ::LoadCursor(NULL, IDC_CROSS);
+	}
+	::SetCursor(hc);
 	return TRUE;
 }
 
@@ -36,54 +49,200 @@ CRect CSCRegionCaptureDlg::current_selection_client() const
 	return CRect(x1, y1, x2, y2);
 }
 
-void CSCRegionCaptureDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
+CSCRegionCaptureDlg::HitTarget CSCRegionCaptureDlg::hit_test(CPoint pt) const
 {
-	m_dragging = true;
-	m_drag_anchor_client = point;
-	m_drag_cursor_client = point;
-	Invalidate(FALSE);
+	if (m_phase != Phase::kEdit)
+		return kHitNone;
+
+	const int E = 6;
+	const CRect& r = m_edit_rect;
+
+	const bool nL = ::abs(pt.x - r.left)	<= E;
+	const bool nR = ::abs(pt.x - r.right)	<= E;
+	const bool nT = ::abs(pt.y - r.top)	<= E;
+	const bool nB = ::abs(pt.y - r.bottom)	<= E;
+
+	if (nT && nL) return kHitTopLeft;
+	if (nT && nR) return kHitTopRight;
+	if (nB && nL) return kHitBottomLeft;
+	if (nB && nR) return kHitBottomRight;
+	if (nT && pt.x > r.left && pt.x < r.right) return kHitTop;
+	if (nB && pt.x > r.left && pt.x < r.right) return kHitBottom;
+	if (nL && pt.y > r.top	&& pt.y < r.bottom) return kHitLeft;
+	if (nR && pt.y > r.top	&& pt.y < r.bottom) return kHitRight;
+	if (r.PtInRect(pt)) return kHitInterior;
+	return kHitNone;
 }
 
-void CSCRegionCaptureDlg::on_mouse_move(UINT /*nFlags*/, CPoint point)
+LPCTSTR CSCRegionCaptureDlg::cursor_id_for_hit(HitTarget h)
 {
-	if (!m_dragging)
-		return;
-
-	m_drag_cursor_client = point;
-	Invalidate(FALSE);
+	switch (h)
+	{
+	case kHitTopLeft:
+	case kHitBottomRight:	return IDC_SIZENWSE;
+	case kHitTopRight:
+	case kHitBottomLeft:	return IDC_SIZENESW;
+	case kHitTop:
+	case kHitBottom:		return IDC_SIZENS;
+	case kHitLeft:
+	case kHitRight:			return IDC_SIZEWE;
+	case kHitInterior:		return IDC_SIZEALL;
+	default:				return IDC_CROSS;
+	}
 }
 
-void CSCRegionCaptureDlg::on_mouse_up(UINT /*nFlags*/, CPoint point)
+void CSCRegionCaptureDlg::commit_capture()
 {
-	if (!m_dragging)
-		return;
-
-	m_dragging = false;
-	m_drag_cursor_client = point;
-
-	CRect sel = current_selection_client();
-	if (sel.Width() > 0 && sel.Height() > 0)
+	m_edit_rect.NormalizeRect();
+	if (m_edit_rect.Width() > 0 && m_edit_rect.Height() > 0)
 	{
 		m_picked = true;
-		m_picked_rect_screen = sel;
+		m_picked_rect_screen = m_edit_rect;
 		m_picked_rect_screen.OffsetRect(m_virtual_screen.left, m_virtual_screen.top);
 	}
 	finish();
 }
 
+void CSCRegionCaptureDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
+{
+	if (m_phase == Phase::kDragging)
+	{
+		m_dragging = true;
+		m_drag_anchor_client = point;
+		m_drag_cursor_client = point;
+		Invalidate(FALSE);
+		return;
+	}
+
+	//kEdit
+	HitTarget h = hit_test(point);
+	m_edit_grab = h;
+	if (h == kHitInterior)
+		m_edit_grab_offset = CPoint(point.x - m_edit_rect.left, point.y - m_edit_rect.top);
+	Invalidate(FALSE);
+}
+
+void CSCRegionCaptureDlg::on_mouse_move(UINT /*nFlags*/, CPoint point)
+{
+	if (m_phase == Phase::kDragging)
+	{
+		if (!m_dragging)
+			return;
+		m_drag_cursor_client = point;
+		Invalidate(FALSE);
+		return;
+	}
+
+	//kEdit
+	if (m_edit_grab == kHitNone)
+		return;
+
+	switch (m_edit_grab)
+	{
+	case kHitTopLeft:		m_edit_rect.left = point.x; m_edit_rect.top = point.y; break;
+	case kHitTop:			m_edit_rect.top = point.y; break;
+	case kHitTopRight:		m_edit_rect.right = point.x; m_edit_rect.top = point.y; break;
+	case kHitLeft:			m_edit_rect.left = point.x; break;
+	case kHitRight:			m_edit_rect.right = point.x; break;
+	case kHitBottomLeft:	m_edit_rect.left = point.x; m_edit_rect.bottom = point.y; break;
+	case kHitBottom:		m_edit_rect.bottom = point.y; break;
+	case kHitBottomRight:	m_edit_rect.right = point.x; m_edit_rect.bottom = point.y; break;
+	case kHitInterior:
+	{
+		const int w = m_edit_rect.Width();
+		const int h = m_edit_rect.Height();
+		m_edit_rect.left = point.x - m_edit_grab_offset.x;
+		m_edit_rect.top = point.y - m_edit_grab_offset.y;
+		m_edit_rect.right = m_edit_rect.left + w;
+		m_edit_rect.bottom = m_edit_rect.top + h;
+		break;
+	}
+	default: break;
+	}
+	Invalidate(FALSE);
+}
+
+void CSCRegionCaptureDlg::on_mouse_up(UINT /*nFlags*/, CPoint point)
+{
+	if (m_phase == Phase::kDragging)
+	{
+		if (!m_dragging)
+			return;
+		m_dragging = false;
+		m_drag_cursor_client = point;
+
+		CRect sel = current_selection_client();
+		if (sel.Width() <= 0 || sel.Height() <= 0)
+		{
+			finish();
+			return;
+		}
+
+		const bool shift_held = (::GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+		if (shift_held)
+		{
+			m_phase = Phase::kEdit;
+			m_edit_rect = sel;
+			m_edit_grab = kHitNone;
+			Invalidate(FALSE);
+			return;
+		}
+
+		m_picked = true;
+		m_picked_rect_screen = sel;
+		m_picked_rect_screen.OffsetRect(m_virtual_screen.left, m_virtual_screen.top);
+		finish();
+		return;
+	}
+
+	//kEdit
+	m_edit_grab = kHitNone;
+	m_edit_rect.NormalizeRect();
+	Invalidate(FALSE);
+}
+
+void CSCRegionCaptureDlg::OnLButtonDblClk(UINT /*nFlags*/, CPoint point)
+{
+	if (m_phase == Phase::kEdit && m_edit_rect.PtInRect(point))
+		commit_capture();
+}
+
 bool CSCRegionCaptureDlg::on_key_down(UINT nChar)
 {
-	//방향키로 커서 1px 단위 이동 — 정밀 위치 조정용. SetCursorPos 가 WM_MOUSEMOVE 를 유발하므로
-	//드래그 중이면 on_mouse_move 가 자동으로 selection rect 갱신하고 다시 그림.
+	if (m_phase == Phase::kEdit)
+	{
+		if (nChar == VK_RETURN || nChar == VK_SPACE)
+		{
+			commit_capture();
+			return true;
+		}
+
+		const int step = (::GetAsyncKeyState(VK_SHIFT) & 0x8000) ? 10 : 1;
+		int dx = 0, dy = 0;
+		switch (nChar)
+		{
+		case VK_LEFT:	dx = -step; break;
+		case VK_RIGHT:	dx =  step; break;
+		case VK_UP:		dy = -step; break;
+		case VK_DOWN:	dy =  step; break;
+		default:
+			return CSCFrozenOverlayDlg::on_key_down(nChar);
+		}
+		m_edit_rect.OffsetRect(dx, dy);
+		Invalidate(FALSE);
+		return true;
+	}
+
+	//kDragging — 방향키로 OS 커서 1px 이동 (정밀 위치 조정).
 	int dx = 0, dy = 0;
 	switch (nChar)
 	{
 	case VK_LEFT:	dx = -1; break;
-	case VK_RIGHT: dx =	1; break;
-	case VK_UP:	dy = -1; break;
-	case VK_DOWN:	dy =	1; break;
+	case VK_RIGHT:	dx =  1; break;
+	case VK_UP:		dy = -1; break;
+	case VK_DOWN:	dy =  1; break;
 	default:
-		return CSCFrozenOverlayDlg::on_key_down(nChar);	//ESC 등은 base 가 처리
+		return CSCFrozenOverlayDlg::on_key_down(nChar);
 	}
 
 	POINT pt;
@@ -92,85 +251,104 @@ bool CSCRegionCaptureDlg::on_key_down(UINT nChar)
 	return true;
 }
 
-HCURSOR CSCRegionCaptureDlg::query_cursor(CPoint /*pt*/)
+HCURSOR CSCRegionCaptureDlg::query_cursor(CPoint pt)
 {
-	//십자 커서 명시 (window class default 도 IDC_CROSS 지만 base OnSetCursor 가 다른 핸들러로
-	//넘겨주는 경로를 차단하기 위해 명시적으로 항상 cross 반환).
+	if (m_phase == Phase::kEdit)
+		return ::LoadCursor(NULL, cursor_id_for_hit(hit_test(pt)));
 	return ::LoadCursor(NULL, IDC_CROSS);
 }
 
 void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 {
-	const float full_w = float(m_virtual_screen.Width());
-	const float full_h = float(m_virtual_screen.Height());
+	const int full_w = m_virtual_screen.Width();
+	const int full_h = m_virtual_screen.Height();
 
-	ComPtr<ID2D1SolidColorBrush> br_mask;
-	ComPtr<ID2D1SolidColorBrush> br_stroke;
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.40f), br_mask.GetAddressOf());
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x4169E1, 1.00f),	br_stroke.GetAddressOf());	//RoyalBlue
+	const Gdiplus::Color cr_mask		(102, 0,	0,	 0);	//40% black
+	const Gdiplus::Color cr_stroke		(255, 65,	105, 225);	//RoyalBlue
+	const Gdiplus::Color cr_handle_fill	= Gdiplus::Color::White;
+	const Gdiplus::Color cr_label_text	= Gdiplus::Color::White;
+	const Gdiplus::Color cr_label_outline = Gdiplus::Color::Black;	//draw_text stroke 인자: 글자 외곽 검은선
+	const Gdiplus::Color cr_label_shadow= Gdiplus::Color::Black;
 
-	if (!m_dragging)
+	CRect rc_show;
+	bool show = false;
+	if (m_phase == Phase::kEdit)
 	{
-		//드래그 시작 전: 화면 전체에 옅은 마스크.
-		d2dc->FillRectangle(D2D1::RectF(0, 0, full_w, full_h), br_mask.Get());
+		rc_show = m_edit_rect;
+		rc_show.NormalizeRect();
+		show = !rc_show.IsRectEmpty();
+	}
+	else if (m_dragging)
+	{
+		rc_show = current_selection_client();
+		show = !rc_show.IsRectEmpty();
+	}
+
+	if (!show)
+	{
+		draw_rect(d2dc, CRect(0, 0, full_w, full_h), Gdiplus::Color::Transparent, cr_mask, 0.0f, 0.0f);
 		return;
 	}
 
-	CRect sel = current_selection_client();
-	const float l = float(sel.left);
-	const float t = float(sel.top);
-	const float r = float(sel.right);
-	const float b = float(sel.bottom);
+	const int l = rc_show.left;
+	const int t = rc_show.top;
+	const int r = rc_show.right;
+	const int b = rc_show.bottom;
 
-	//선택 영역 외부 4분할 마스크.
-	d2dc->FillRectangle(D2D1::RectF(0, 0, full_w,	t),	br_mask.Get());
-	d2dc->FillRectangle(D2D1::RectF(0, b, full_w,	full_h), br_mask.Get());
-	d2dc->FillRectangle(D2D1::RectF(0, t, l,	b),	br_mask.Get());
-	d2dc->FillRectangle(D2D1::RectF(r, t, full_w,	b),	br_mask.Get());
+	//ROI 외곽 4 분할 마스크.
+	draw_rect(d2dc, CRect(0, 0, full_w, t),			Gdiplus::Color::Transparent, cr_mask, 0.0f, 0.0f);
+	draw_rect(d2dc, CRect(0, b, full_w, full_h),	Gdiplus::Color::Transparent, cr_mask, 0.0f, 0.0f);
+	draw_rect(d2dc, CRect(0, t, l, b),				Gdiplus::Color::Transparent, cr_mask, 0.0f, 0.0f);
+	draw_rect(d2dc, CRect(r, t, full_w, b),			Gdiplus::Color::Transparent, cr_mask, 0.0f, 0.0f);
 
-	//선택 보더.
-	d2dc->DrawRectangle(D2D1::RectF(l, t, r, b), br_stroke.Get(), 2.0f);
+	//ROI 보더.
+	draw_rect(d2dc, CRect(l, t, r, b), cr_stroke, Gdiplus::Color::Transparent, 2.0f, 0.0f);
 
-	//크기 텍스트 (선택 영역 가로 중앙).
-	ComPtr<IDWriteFactory> dwrite;
-	ComPtr<IDWriteTextFormat> tf;
-	HRESULT hrf = ::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
-		__uuidof(IDWriteFactory), (IUnknown**)dwrite.GetAddressOf());
-	if (SUCCEEDED(hrf))
+	if (m_phase == Phase::kEdit)
 	{
-		dwrite->CreateTextFormat(L"Segoe UI", NULL,
-			DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-			14.0f, L"", tf.GetAddressOf());
+		//변 hit-test 는 유지(투명 edge resize) 하되 시각 표시는 4 코너 핸들만 — 모던 크롭툴 추세.
+		const int HS = 5;
+		auto draw_handle = [&](int cx, int cy)
+		{
+			draw_rect(d2dc, CRect(cx - HS, cy - HS, cx + HS, cy + HS),
+				cr_stroke, cr_handle_fill, 1.5f, 0.0f);
+		};
+		draw_handle(l, t);
+		draw_handle(r, t);
+		draw_handle(l, b);
+		draw_handle(r, b);
 	}
-	if (!tf)
-		return;
 
-	WCHAR text[64];
-	swprintf_s(text, L"%d x %d", sel.Width(), sel.Height());
+	const int margin = 4;
+	const int line_height = 21;		//font_size 14 * line_spacing 1.5 ≈ DWRITE TextMetrics height (Common draw_text 내부)
 
-	tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-	tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+	WCHAR coord_tl[64];
+	swprintf_s(coord_tl, L"(%d, %d)", rc_show.left + m_virtual_screen.left, rc_show.top + m_virtual_screen.top);
+	draw_text(d2dc, CRect(l, 0, full_w, t - margin), coord_tl,
+		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
+		1.0f, DT_LEFT | DT_BOTTOM);
 
-	ComPtr<ID2D1SolidColorBrush> br_label_back;
-	ComPtr<ID2D1SolidColorBrush> br_label_text;
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.70f), br_label_back.GetAddressOf());
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_label_text.GetAddressOf());
+	const int center_x = (l + r) / 2;
+	WCHAR text_size[64];
+	swprintf_s(text_size, L"%d x %d", rc_show.Width(), rc_show.Height());
+	draw_text(d2dc, CRect(center_x - full_w, b + margin, center_x + full_w, full_h), text_size,
+		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
+		1.0f, DT_CENTER | DT_TOP);
 
-	const float label_w = 90.0f;
-	const float label_h = 22.0f;
-	float lx = (l + r) * 0.5f - label_w * 0.5f;
-	float ly = b + 6.0f;
-	if (lx < 0)
-		lx = 0;
-	if (lx + label_w > full_w)
-		lx = full_w - label_w;
-	if (ly + label_h > full_h)
-		ly = b - label_h - 6.0f;
+	WCHAR coord_br[64];
+	swprintf_s(coord_br, L"(%d, %d)", rc_show.right + m_virtual_screen.left, rc_show.bottom + m_virtual_screen.top);
+	draw_text(d2dc, CRect(0, b + margin, r, full_h), coord_br,
+		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
+		1.0f, DT_RIGHT | DT_TOP);
 
-	D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + label_w, ly + label_h), 4.0f, 4.0f };
-	d2dc->FillRoundedRectangle(rr, br_label_back.Get());
-	d2dc->DrawText(text, UINT32(wcslen(text)), tf.Get(),
-		D2D1::RectF(lx, ly, lx + label_w, ly + label_h),
-		br_label_text.Get(),
-		D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+	LPCWSTR hint = (m_phase == Phase::kEdit)
+		? L"Enter or 더블클릭 : 캡처    ESC or 우클릭 : 취소\n방향키로 이동 가능 (Shift 조합 가능)"
+		: L"Shift키를 누른 상태에서 영역선택 완료 시 수동 조정모드 가능";
+	draw_text(d2dc, CRect(center_x - full_w, b + margin + line_height + margin, center_x + full_w, full_h), hint,
+		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
+		1.0f, DT_CENTER | DT_TOP);
 }
