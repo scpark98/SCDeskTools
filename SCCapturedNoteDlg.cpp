@@ -1,4 +1,4 @@
-ï»¿// SCCapturedNoteDlg.cpp
+// SCCapturedNoteDlg.cpp
 
 #include "pch.h"
 #include "SCCapturedNoteDlg.h"
@@ -46,13 +46,13 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	m_img_w = w;
 	m_img_h = h;
 
-	//ìº¡ì…˜ / ë³´ë” ì—†ëŠ” popup. ê²€ì€ ë°°ê²½ (ì´ë¯¸ì§€ ì˜ì—­ ì™¸ì— ì ê¹ ë³´ì´ë”ë¼ë„ ë¬´ë‚œ).
+	//Ä¸¼Ç / º¸´õ ¾ø´Â popup. °ËÀº ¹è°æ (ÀÌ¹ÌÁö ¿µ¿ª ¿Ü¿¡ Àá±ñ º¸ÀÌ´õ¶óµµ ¹«³­).
 	LPCTSTR wnd_class = ::AfxRegisterWndClass(
 		0,
 		::LoadCursor(NULL, IDC_ARROW),
 		reinterpret_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)));
 
-	//ì‹œì‘ ì‚¬ì´ì¦ˆ = ì´ë¯¸ì§€ ì‚¬ì´ì¦ˆ, ë‹¨ í™”ë©´ì˜ 80% ë¥¼ ë„˜ì§€ ì•Šê²Œ ratio ë³´ì¡´ ì¶•ì†Œ.
+	//½ÃÀÛ »çÀÌÁî = ÀÌ¹ÌÁö »çÀÌÁî, ´Ü È­¸éÀÇ 80% ¸¦ ³ÑÁö ¾Ê°Ô ratio º¸Á¸ Ãà¼Ò.
 	const int cx_screen = ::GetSystemMetrics(SM_CXSCREEN);
 	const int cy_screen = ::GetSystemMetrics(SM_CYSCREEN);
 	const int max_cx = cx_screen * 80 / 100;
@@ -85,16 +85,16 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 		y = (cy_screen - win_cy) / 2;
 	}
 
-	//owner = main dialog. owned popup ìœ¼ë¡œ ë§Œë“¤ì–´ ë©”ì¸ ë‹¤ì´ì–¼ë¡œê·¸ destroy ì‹œ ìë™ìœ¼ë¡œ
-	//PostNcDestroy â†’ delete this ê°€ ë°œí™”ë˜ì–´ ë©”ëª¨ë¦¬ leak ë°©ì§€.
-	//child window ê°€ ì•„ë‹ˆë¯€ë¡œ ììœ  ì´ë™/ë¦¬ì‚¬ì´ì¦ˆ/ë³„ë„ z-order ë™ì‘ì€ ê·¸ëŒ€ë¡œ.
+	//owner = main dialog. owned popup À¸·Î ¸¸µé¾î ¸ŞÀÎ ´ÙÀÌ¾ó·Î±× destroy ½Ã ÀÚµ¿À¸·Î
+	//PostNcDestroy ¡æ delete this °¡ ¹ßÈ­µÇ¾î ¸Ş¸ğ¸® leak ¹æÁö.
+	//child window °¡ ¾Æ´Ï¹Ç·Î ÀÚÀ¯ ÀÌµ¿/¸®»çÀÌÁî/º°µµ z-order µ¿ÀÛÀº ±×´ë·Î.
 	HWND hOwner = NULL;
 	if (CWnd* pMain = AfxGetMainWnd())
 		hOwner = pMain->GetSafeHwnd();
 
-	//WS_EX_TOOLWINDOW: taskbar/Alt+Tab ë¹„ë…¸ì¶œ.
-	//WS_EX_TOPMOST: í¬ìŠ¤íŠ¸ì‡ì²˜ëŸ¼ í•­ìƒ ë‹¤ë¥¸ ì°½ ìœ„. ìº¡ì…˜ë°”ê°€ ì—†ì–´ í•œë²ˆ ê°€ë ¤ì§€ë©´ ë‹¤ì‹œ ë„ìš¸
-	//ë°©ë²•ì´ ì—†ìœ¼ë¯€ë¡œ topmost ê°€ ì‚¬ì‹¤ìƒ í•„ìˆ˜ (ì‚¬ìš©ì ìš”êµ¬).
+	//WS_EX_TOOLWINDOW: taskbar/Alt+Tab ºñ³ëÃâ.
+	//WS_EX_TOPMOST: Æ÷½ºÆ®ÀÕÃ³·³ Ç×»ó ´Ù¸¥ Ã¢ À§. Ä¸¼Ç¹Ù°¡ ¾ø¾î ÇÑ¹ø °¡·ÁÁö¸é ´Ù½Ã ¶ç¿ï
+	//¹æ¹ıÀÌ ¾øÀ¸¹Ç·Î topmost °¡ »ç½Ç»ó ÇÊ¼ö (»ç¿ëÀÚ ¿ä±¸).
 	BOOL ok = CreateEx(
 		WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
 		wnd_class,
@@ -108,11 +108,11 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	if (!ok)
 		return false;
 
-	//WS_EX_LAYERED í™œì„±í™” â€” Ctrl+wheel ë¡œ ì°½ íˆ¬ëª…ë„ ì¡°ì ˆ ê°€ëŠ¥í•˜ê²Œ.
+	//WS_EX_LAYERED È°¼ºÈ­ ? Ctrl+wheel ·Î Ã¢ Åõ¸íµµ Á¶Àı °¡´ÉÇÏ°Ô.
 	ModifyStyleEx(0, WS_EX_LAYERED);
 	SetLayeredWindowAttributes(0, m_alpha, LWA_ALPHA);
 
-	//ì»¨í…Œì´ë„ˆ ìì²´ D2D ì»¨í…ìŠ¤íŠ¸.
+	//ÄÁÅ×ÀÌ³Ê ÀÚÃ¼ D2D ÄÁÅØ½ºÆ®.
 	HRESULT hr = m_d2.init(m_hWnd, win_cx, win_cy);
 	if (FAILED(hr))
 	{
@@ -120,7 +120,7 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 		return false;
 	}
 
-	//í”½ì…€ ë°ì´í„°ë¥¼ CSCD2Image ë¡œ ì—…ë¡œë“œ. const_cast ëŠ” load() ì‹œê·¸ë‹ˆì²˜ ë•Œë¬¸ â€” ë‚´ë¶€ì—ì„œ read-only ì‚¬ìš©.
+	//ÇÈ¼¿ µ¥ÀÌÅÍ¸¦ CSCD2Image ·Î ¾÷·Îµå. const_cast ´Â load() ½Ã±×´ÏÃ³ ¶§¹® ? ³»ºÎ¿¡¼­ read-only »ç¿ë.
 	hr = m_image.load(m_d2.get_WICFactory(), m_d2.get_d2dc(),
 		const_cast<BYTE*>(bgra), w, h, 4);
 	if (FAILED(hr) || !m_image.is_valid())
@@ -129,10 +129,10 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 		return false;
 	}
 
-	//ìì‹ ì´ë¯¸ì§€ ë‹¤ì´ì–¼ë¡œê·¸ â€” simple_mode ë¡œ ì¤Œ/íŒ¬ ë§Œ ìë™ ì²˜ë¦¬.
-	//set_shared_d2dc ëŠ” create() í˜¸ì¶œ ì „ì— ì„¤ì •í•´ì•¼ íš¨ê³¼ ìˆìŒ.
-	m_img_dlg.set_simple_mode(true);	//ëª¨ë“  ê¸°ëŠ¥ off
-	m_img_dlg.set_enable_pan(true);		//pan ë§Œ enable (Shift+drag ë¡œ í™œì„±í™” â€” note dlg ì˜ OnNcHitTest ê°€ routing)
+	//ÀÚ½Ä ÀÌ¹ÌÁö ´ÙÀÌ¾ó·Î±× ? simple_mode ·Î ÁÜ/ÆÒ ¸¸ ÀÚµ¿ Ã³¸®.
+	//set_shared_d2dc ´Â create() È£Ãâ Àü¿¡ ¼³Á¤ÇØ¾ß È¿°ú ÀÖÀ½.
+	m_img_dlg.set_simple_mode(true);	//¸ğµç ±â´É off
+	m_img_dlg.set_enable_pan(true);		//pan ¸¸ enable (Shift+drag ·Î È°¼ºÈ­ ? note dlg ÀÇ OnNcHitTest °¡ routing)
 	m_img_dlg.set_shared_d2dc(&m_d2);
 
 	CRect rc_client;
@@ -140,19 +140,19 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	m_img_dlg.create(this, 0, 0, rc_client.Width(), rc_client.Height());
 	m_img_dlg.set_image(&m_image);
 
-	//post-paint ì½œë°± â€” m_img_dlg ì˜ D2D ê°™ì€ frame ì— ì¶”ê°€ ì˜¤ë²„ë ˆì´ ê·¸ë¦¼ (ì•ˆí‹°ì•¨ë¦¬ì–´ì‹±, z-order ì¶©ëŒ ì—†ìŒ).
-	//ë³¸ë¬¸ì€ ë©¤ë²„ í•¨ìˆ˜ë¡œ ë¶„ë¦¬. ëŒë‹¤ëŠ” this ìº¡ì²˜í•˜ì—¬ ë©¤ë²„ í˜¸ì¶œë§Œ ìœ„ì„.
+	//post-paint Äİ¹é ? m_img_dlg ÀÇ D2D °°Àº frame ¿¡ Ãß°¡ ¿À¹ö·¹ÀÌ ±×¸² (¾ÈÆ¼¾Ù¸®¾î½Ì, z-order Ãæµ¹ ¾øÀ½).
+	//º»¹®Àº ¸â¹ö ÇÔ¼ö·Î ºĞ¸®. ¶÷´Ù´Â this Ä¸Ã³ÇÏ¿© ¸â¹ö È£Ãâ¸¸ À§ÀÓ.
 	m_img_dlg.set_post_paint_callback(
 		[this](ID2D1DeviceContext* d2dc) { on_img_dlg_post_paint(d2dc); });
 
 	m_initialized = true;
 
-	//BS_OWNERDRAW ëŠ” CGdiButton ì´ PreSubclassWindow ì—ì„œ ìì²´ ì¶”ê°€. ì™¸ë¶€ ëª…ì‹œ ë¶ˆí•„ìš”.
-	//(CGdiButton::create / PreSubclassWindow ê°€ ì™¸ë¶€ BS_OWNERDRAW ë¥¼ ìë™ ì •ê·œí™”í•˜ì§€ë§Œ ì•ˆ ì£¼ëŠ” ê²Œ ì •ì„.)
+	//BS_OWNERDRAW ´Â CGdiButton ÀÌ PreSubclassWindow ¿¡¼­ ÀÚÃ¼ Ãß°¡. ¿ÜºÎ ¸í½Ã ºÒÇÊ¿ä.
+	//(CGdiButton::create / PreSubclassWindow °¡ ¿ÜºÎ BS_OWNERDRAW ¸¦ ÀÚµ¿ Á¤±ÔÈ­ÇÏÁö¸¸ ¾È ÁÖ´Â °Ô Á¤¼®.)
 	m_button_close.create(_T(""), WS_CHILD, CRect(0, 0, 21, 21), this, kIdBtnClose);
 	m_button_close.ShowWindow(SW_SHOW);
 
-	//YouTube/Chrome ë‹«ê¸° ë²„íŠ¼ í†¤ì˜ ë¹¨ê°• ë°°ê²½ + í° X.
+	//YouTube/Chrome ´İ±â ¹öÆ° ÅæÀÇ »¡°­ ¹è°æ + Èò X.
 	CSCGdiplusBitmap close_btn_bmp(21, 21, Gdiplus::Color(255, 232, 17, 35));
 	{
 		Gdiplus::Graphics g(close_btn_bmp);
@@ -177,7 +177,7 @@ void CSCCapturedNoteDlg::OnSize(UINT nType, int cx, int cy)
 
 	if (m_initialized && m_img_dlg.GetSafeHwnd())
 	{
-		//í´ë¼ì´ì–¸íŠ¸ ì „ì²´ì— ìì‹ì„ fit. ìì‹ì´ ì•Œì•„ì„œ fit-to-ctrl ë˜ëŠ” zoom ëª¨ë“œì— ë§ì¶° ë‹¤ì‹œ ê·¸ë¦¼.
+		//Å¬¶óÀÌ¾ğÆ® ÀüÃ¼¿¡ ÀÚ½ÄÀ» fit. ÀÚ½ÄÀÌ ¾Ë¾Æ¼­ fit-to-ctrl ¶Ç´Â zoom ¸ğµå¿¡ ¸ÂÃç ´Ù½Ã ±×¸².
 		m_img_dlg.MoveWindow(0, 0, cx, cy, TRUE);
 
 		CRect rbutton = make_rect(cx - m_button_close.width() - 3, 3, m_button_close.width(), m_button_close.height());
@@ -187,11 +187,11 @@ void CSCCapturedNoteDlg::OnSize(UINT nType, int cx, int cy)
 
 LRESULT CSCCapturedNoteDlg::OnNcHitTest(CPoint point)
 {
-	//point ëŠ” screen ì¢Œí‘œ.
+	//point ´Â screen ÁÂÇ¥.
 	CRect rc;
 	GetWindowRect(rc);
 
-	//(1) ê°€ì¥ìë¦¬ 8px â†’ 8ë°©í–¥ resize í•¸ë“¤.
+	//(1) °¡ÀåÀÚ¸® 8px ¡æ 8¹æÇâ resize ÇÚµé.
 	const int E = static_cast<int>(kEdgeResize);
 	const bool L = (point.x <  rc.left  + E);
 	const bool R = (point.x >= rc.right - E);
@@ -207,10 +207,10 @@ LRESULT CSCCapturedNoteDlg::OnNcHitTest(CPoint point)
 	if (T) return HTTOP;
 	if (B) return HTBOTTOM;
 
-	//(2) í´ë¼ì´ì–¸íŠ¸ ì˜ì—­.
-	//Shift ëˆ„ë¥¸ ìƒíƒœë©´ HTCLIENT ë¡œ ìì‹ (m_img_dlg) ì´ ë°›ì•„ pan.
-	//ê·¸ ì™¸ì—ëŠ” HTCAPTION ë°˜í™˜ â†’ Windows DefWindowProc ê°€ modal move loop ìë™ ì²˜ë¦¬.
-	//HTCAPTION ë¶„ê¸°ëŠ” ASee ê°€ ê²€ì¦í•œ ê°€ì¥ ì‹ ë¢°ì„± ë†’ì€ ì°½ ì´ë™ ê²½ë¡œ.
+	//(2) Å¬¶óÀÌ¾ğÆ® ¿µ¿ª.
+	//Shift ´©¸¥ »óÅÂ¸é HTCLIENT ·Î ÀÚ½Ä (m_img_dlg) ÀÌ ¹Ş¾Æ pan.
+	//±× ¿Ü¿¡´Â HTCAPTION ¹İÈ¯ ¡æ Windows DefWindowProc °¡ modal move loop ÀÚµ¿ Ã³¸®.
+	//HTCAPTION ºĞ±â´Â ASee °¡ °ËÁõÇÑ °¡Àå ½Å·Ú¼º ³ôÀº Ã¢ ÀÌµ¿ °æ·Î.
 	if (::GetAsyncKeyState(VK_SHIFT) & 0x8000)
 		return HTCLIENT;
 
@@ -219,9 +219,9 @@ LRESULT CSCCapturedNoteDlg::OnNcHitTest(CPoint point)
 
 void CSCCapturedNoteDlg::OnNcCalcSize(BOOL bCalcValidRects, NCCALCSIZE_PARAMS* lpncsp)
 {
-	//ìº¡ì…˜ë°” ì—†ëŠ” popup ì—ì„œ default ê°€ ë‚¨ê¸°ëŠ” ìƒë‹¨ í°ìƒ‰ NC ì˜ì—­ì„ client ë¡œ í¡ìˆ˜.
-	//client rect ì˜ top ì„ 6px ìœ„ë¡œ í™•ì¥í•˜ì—¬ ê·¸ ì˜ì—­ì„ ìš°ë¦¬ í´ë¼ì´ì–¸íŠ¸ê°€ ë®ê²Œ í•œë‹¤.
-	//CASeeDlg::OnNcCalcSize ì™€ ë™ì¼ íŒ¨í„´.
+	//Ä¸¼Ç¹Ù ¾ø´Â popup ¿¡¼­ default °¡ ³²±â´Â »ó´Ü Èò»ö NC ¿µ¿ªÀ» client ·Î Èí¼ö.
+	//client rect ÀÇ top À» 6px À§·Î È®ÀåÇÏ¿© ±× ¿µ¿ªÀ» ¿ì¸® Å¬¶óÀÌ¾ğÆ®°¡ µ¤°Ô ÇÑ´Ù.
+	//CASeeDlg::OnNcCalcSize ¿Í µ¿ÀÏ ÆĞÅÏ.
 
 	if (bCalcValidRects && lpncsp)
 		lpncsp->rgrc[0].top -= 6;
@@ -231,7 +231,7 @@ void CSCCapturedNoteDlg::OnNcCalcSize(BOOL bCalcValidRects, NCCALCSIZE_PARAMS* l
 
 void CSCCapturedNoteDlg::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 {
-	//point == (-1,-1) ì´ë©´ í‚¤ë³´ë“œ ë©”ë‰´ í‚¤. ê·¸ ì™¸ì—” ë§ˆìš°ìŠ¤ ìœ„ì¹˜ (screen coord).
+	//point == (-1,-1) ÀÌ¸é Å°º¸µå ¸Ş´º Å°. ±× ¿Ü¿£ ¸¶¿ì½º À§Ä¡ (screen coord).
 	if (point.x == -1 && point.y == -1)
 	{
 		CRect rc;
@@ -244,9 +244,9 @@ void CSCCapturedNoteDlg::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 
 void CSCCapturedNoteDlg::OnNcRButtonUp(UINT /*nHitTest*/, CPoint point)
 {
-	//OnNcHitTest ê°€ í´ë¼ì´ì–¸íŠ¸ ì˜ì—­ì„ HTCAPTION ìœ¼ë¡œ ë°˜í™˜í•˜ë¯€ë¡œ ê±°ê¸°ì„œ ìš°í´ë¦­ì€
-	//WM_CONTEXTMENU ê°€ ì•„ë‹Œ WM_NCRBUTTONUP ìœ¼ë¡œ ë“¤ì–´ì˜¨ë‹¤. ì»¨í…ìŠ¤íŠ¸ ë©”ë‰´ë¥¼ ì§ì ‘ ë„ì›€.
-	//point ëŠ” NC ë©”ì‹œì§€ í‘œì¤€ëŒ€ë¡œ screen ì¢Œí‘œ.
+	//OnNcHitTest °¡ Å¬¶óÀÌ¾ğÆ® ¿µ¿ªÀ» HTCAPTION À¸·Î ¹İÈ¯ÇÏ¹Ç·Î °Å±â¼­ ¿ìÅ¬¸¯Àº
+	//WM_CONTEXTMENU °¡ ¾Æ´Ñ WM_NCRBUTTONUP À¸·Î µé¾î¿Â´Ù. ÄÁÅØ½ºÆ® ¸Ş´º¸¦ Á÷Á¢ ¶ç¿ò.
+	//point ´Â NC ¸Ş½ÃÁö Ç¥ÁØ´ë·Î screen ÁÂÇ¥.
 	show_context_menu(point);
 }
 
@@ -261,13 +261,13 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 
 	CMenu menu;
 	menu.CreatePopupMenu();
-	menu.AppendMenu(MF_STRING, kCmdCopy,    _T("í´ë¦½ë³´ë“œë¡œ ë³µì‚¬(&C)\tCtrl+C"));
-	menu.AppendMenu(MF_STRING, kCmdSave,    _T("ì´ë¯¸ì§€ ì €ì¥(&S)...\tCtrl+S"));
+	menu.AppendMenu(MF_STRING, kCmdCopy,    _T("Å¬¸³º¸µå·Î º¹»ç(&C)\tCtrl+C"));
+	menu.AppendMenu(MF_STRING, kCmdSave,    _T("ÀÌ¹ÌÁö ÀúÀå(&S)...\tCtrl+S"));
 	menu.AppendMenu(MF_SEPARATOR);
-	menu.AppendMenu(flag_100,  kCmdZoom100, _T("100% í¬ê¸°\tCtrl+W"));
-	menu.AppendMenu(flag_fit,  kCmdZoomFit, _T("ì°½ì— ë§ì¶¤(&F)\tCtrl+F"));
+	menu.AppendMenu(flag_100,  kCmdZoom100, _T("100% Å©±â\tCtrl+W"));
+	menu.AppendMenu(flag_fit,  kCmdZoomFit, _T("Ã¢¿¡ ¸ÂÃã(&F)\tCtrl+F"));
 	menu.AppendMenu(MF_SEPARATOR);
-	menu.AppendMenu(MF_STRING, kCmdClose,   _T("ë‹«ê¸°(&X)\tEsc"));
+	menu.AppendMenu(MF_STRING, kCmdClose,   _T("´İ±â(&X)\tEsc"));
 
 	SetForegroundWindow();
 	int cmd = menu.TrackPopupMenu(
@@ -288,9 +288,9 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 			break;
 		case kCmdZoom100:
 		{
-			//100% = ì´ë¯¸ì§€ í”½ì…€ 1:1 + ì°½ í¬ê¸°ë¥¼ ì´ë¯¸ì§€ í¬ê¸°ì— ë§ì¶° ìë™ ì¡°ì • (í™”ë©´ 80% ì•ˆ ë¹„ìœ¨ ìœ ì§€).
+			//100% = ÀÌ¹ÌÁö ÇÈ¼¿ 1:1 + Ã¢ Å©±â¸¦ ÀÌ¹ÌÁö Å©±â¿¡ ¸ÂÃç ÀÚµ¿ Á¶Á¤ (È­¸é 80% ¾È ºñÀ² À¯Áö).
 			m_img_dlg.fit2ctrl(false);
-			m_img_dlg.zoom(0);	//SCD2ImageDlg ì»¨ë²¤ì…˜: zoom(int 0) = ì›ë³¸ 100% (ASee OnMenuZoomOrigin ê³¼ ë™ì¼)
+			m_img_dlg.zoom(0);	//SCD2ImageDlg ÄÁº¥¼Ç: zoom(int 0) = ¿øº» 100% (ASee OnMenuZoomOrigin °ú µ¿ÀÏ)
 
 			int target_cx = m_img_w;
 			int target_cy = m_img_h;
@@ -313,7 +313,7 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 			if (target_cx < 80) target_cx = 80;
 			if (target_cy < 60) target_cy = 60;
 
-			//NC ì˜¤í”„ì…‹ ì¸¡ì • â€” client ê°€ ì •í™•íˆ target ì´ ë˜ë„ë¡ window í¬ê¸° ê²°ì •.
+			//NC ¿ÀÇÁ¼Â ÃøÁ¤ ? client °¡ Á¤È®È÷ target ÀÌ µÇµµ·Ï window Å©±â °áÁ¤.
 			CRect rc_window, rc_client;
 			GetWindowRect(rc_window);
 			GetClientRect(rc_client);
@@ -326,7 +326,7 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 			break;
 		}
 		case kCmdZoomFit:
-			//ì°½ì— ë§ì¶¤ = fit2ctrl(true). zoom() ê³¼ ë³„ê°œì˜ ëª¨ë“œ (m_fit2ctrl flag).
+			//Ã¢¿¡ ¸ÂÃã = fit2ctrl(true). zoom() °ú º°°³ÀÇ ¸ğµå (m_fit2ctrl flag).
 			m_img_dlg.fit2ctrl(true);
 			break;
 		case kCmdClose:
@@ -335,18 +335,18 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 
 		case kCmdSave:
 		{
-			//íŒŒì¼ ëŒ€í™”ìƒìì˜ filter ë“œë¡­ë‹¤ìš´ì—ì„œ í¬ë§· ì„ íƒ. ìƒˆ í¬ë§· ì¶”ê°€ëŠ” filter ë¬¸ìì—´ë§Œ í™•ì¥í•˜ë©´ ë¨.
+			//ÆÄÀÏ ´ëÈ­»óÀÚÀÇ filter µå·Ó´Ù¿î¿¡¼­ Æ÷¸Ë ¼±ÅÃ. »õ Æ÷¸Ë Ãß°¡´Â filter ¹®ÀÚ¿­¸¸ È®ÀåÇÏ¸é µÊ.
 			LPCTSTR filter =
-				_T("PNG ì´ë¯¸ì§€ (*.png)|*.png|")
-				_T("JPEG ì´ë¯¸ì§€ (*.jpg;*.jpeg)|*.jpg;*.jpeg|")
-				_T("ëª¨ë“  íŒŒì¼ (*.*)|*.*||");
+				_T("PNG ÀÌ¹ÌÁö (*.png)|*.png|")
+				_T("JPEG ÀÌ¹ÌÁö (*.jpg;*.jpeg)|*.jpg;*.jpeg|")
+				_T("¸ğµç ÆÄÀÏ (*.*)|*.*||");
 
 			SYSTEMTIME st;
 			::GetLocalTime(&st);
 
 			CString recent_folder = AfxGetApp()->GetProfileString(_T("settings"), _T("recent_folder"), get_exe_directory());
 			CString default_name;
-			default_name.Format(_T("%s\\capture_%04d%02d%02d_%02d%02d%02d.png"),
+			default_name.Format(_T("%s\\sccapture_%04d%02d%02d_%02d%02d%02d.png"),
 				recent_folder,
 				st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 
@@ -361,10 +361,10 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 			ext.MakeLower();
 			const bool is_jpg = (ext == _T(".jpg") || ext == _T(".jpeg"));
 
-			const float quality = is_jpg ? 0.92f : 1.0f;	//PNG ëŠ” ë¬´ì†ì‹¤ì´ë¼ quality ì˜ë¯¸ ì—†ìŒ
+			const float quality = is_jpg ? 0.92f : 1.0f;	//PNG ´Â ¹«¼Õ½ÇÀÌ¶ó quality ÀÇ¹Ì ¾øÀ½
 			HRESULT hr = m_img_dlg.save(path, quality);
 			if (FAILED(hr))
-				AfxMessageBox(_T("ì´ë¯¸ì§€ ì €ì¥ ì‹¤íŒ¨."));
+				AfxMessageBox(_T("ÀÌ¹ÌÁö ÀúÀå ½ÇÆĞ."));
 
 			AfxGetApp()->WriteProfileString(_T("settings"), _T("recent_folder"), get_part(path, fn_folder));
 			break;
@@ -374,16 +374,16 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 
 BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 {
-	//ìì‹ (CSCD2ImageDlg simple_mode) ì´ ë§ˆìš°ìŠ¤/í‚¤ë¥¼ ê±°ì˜ ì²˜ë¦¬í•˜ì§€ ì•Šìœ¼ë¯€ë¡œ
-	//PreTranslateMessage ë‹¨ê³„ì—ì„œ ë¶€ëª¨ê°€ ê°€ë¡œì±„ì„œ ëª¨ë‘ ì²˜ë¦¬í•œë‹¤.
+	//ÀÚ½Ä (CSCD2ImageDlg simple_mode) ÀÌ ¸¶¿ì½º/Å°¸¦ °ÅÀÇ Ã³¸®ÇÏÁö ¾ÊÀ¸¹Ç·Î
+	//PreTranslateMessage ´Ü°è¿¡¼­ ºÎ¸ğ°¡ °¡·ÎÃ¤¼­ ¸ğµÎ Ã³¸®ÇÑ´Ù.
 
 	if (pMsg->message == WM_MOUSEMOVE)
 	{
 		TRACE(_T("PreTranslateMessage, WM_MOUSEMOVE\n"));
 	}
 	/*
-		//ë§ˆìš°ìŠ¤ ì´ë™ ì‹œ ë‹«ê¸° ë²„íŠ¼ ë…¸ì¶œ ì œì–´. ì´ë¯¸ì§€ ê°€ì¥ìë¦¬ ê·¼ì²˜ë¡œ ë§ˆìš°ìŠ¤ê°€ ì˜¤ë©´ ë²„íŠ¼ì´ ë‚˜íƒ€ë‚˜ê³  ë©€ì–´ì§€ë©´ ì‚¬ë¼ì§„ë‹¤.
-		//ë²„íŠ¼ì´ ë§ˆìš°ìŠ¤ì— ê°€ë ¤ì§€ëŠ” ê²½ìš°ê°€ ìˆëŠ”ë°, ì´ ê²½ìš°ëŠ” ë²„íŠ¼ì´ í•­ìƒ ë³´ì´ëŠ” ê²Œ ë‚«ë‹¤ê³  íŒë‹¨í•˜ì—¬ ë…¸ì¶œ ìœ ì§€.
+		//¸¶¿ì½º ÀÌµ¿ ½Ã ´İ±â ¹öÆ° ³ëÃâ Á¦¾î. ÀÌ¹ÌÁö °¡ÀåÀÚ¸® ±ÙÃ³·Î ¸¶¿ì½º°¡ ¿À¸é ¹öÆ°ÀÌ ³ªÅ¸³ª°í ¸Ö¾îÁö¸é »ç¶óÁø´Ù.
+		//¹öÆ°ÀÌ ¸¶¿ì½º¿¡ °¡·ÁÁö´Â °æ¿ì°¡ ÀÖ´Âµ¥, ÀÌ °æ¿ì´Â ¹öÆ°ÀÌ Ç×»ó º¸ÀÌ´Â °Ô ³´´Ù°í ÆÇ´ÜÇÏ¿© ³ëÃâ À¯Áö.
 		POINT pt = { LOWORD(pMsg->lParam), HIWORD(pMsg->lParam) };
 		ClientToScreen(&pt);
 		CRect rc;
@@ -396,24 +396,24 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 				m_button_close.ShowWindow(SW_HIDE);
 		}
 	}
-	//íœ  = ì¤Œ. SCD2ImageDlg simple_mode ëŠ” ìì²´ íœ  ì²˜ë¦¬ X.
-	//ì»¤ì„œ ì•„ë˜ì˜ ì´ë¯¸ì§€ í”½ì…€ì´ ì¤Œ í›„ì—ë„ ê°™ì€ í™”ë©´ ìœ„ì¹˜ì— ë¨¸ë¬´ë¥´ë„ë¡ offset ë³´ì •.
+	//ÈÙ = ÁÜ. SCD2ImageDlg simple_mode ´Â ÀÚÃ¼ ÈÙ Ã³¸® X.
+	//Ä¿¼­ ¾Æ·¡ÀÇ ÀÌ¹ÌÁö ÇÈ¼¿ÀÌ ÁÜ ÈÄ¿¡µµ °°Àº È­¸é À§Ä¡¿¡ ¸Ó¹«¸£µµ·Ï offset º¸Á¤.
 	//   zoom_after = zoom_before * ratio
-	//   ì›í•˜ëŠ” í™”ë©´ ìœ„ì¹˜ cur ê°€ ê·¸ëŒ€ë¡œ ìœ ì§€ë˜ë ¤ë©´:
-	//   dx = (cur.x - rc_before.left) * (1 - ratio)   (sy ë„ ë™ì¼)
+	//   ¿øÇÏ´Â È­¸é À§Ä¡ cur °¡ ±×´ë·Î À¯ÁöµÇ·Á¸é:
+	//   dx = (cur.x - rc_before.left) * (1 - ratio)   (sy µµ µ¿ÀÏ)
 	*/
 	else if (pMsg->message == WM_MOUSEWHEEL)
 	{
 		short zDelta = static_cast<short>(HIWORD(pMsg->wParam));
 
-		//Ctrl+wheel = ì°½ íˆ¬ëª…ë„ ì¡°ì •. wParam ì˜ LOWORD ì— MK_CONTROL ë¹„íŠ¸ ë“¤ì–´ì˜´.
+		//Ctrl+wheel = Ã¢ Åõ¸íµµ Á¶Á¤. wParam ÀÇ LOWORD ¿¡ MK_CONTROL ºñÆ® µé¾î¿È.
 		const bool ctrl = (LOWORD(pMsg->wParam) & MK_CONTROL) != 0;
 		if (ctrl)
 		{
 			const int step = 16;
 			int alpha = m_alpha + (zDelta > 0 ? step : -step);
 			if (alpha > 255) alpha = 255;
-			if (alpha < 64)  alpha = 64;	//ì™„ì „ íˆ¬ëª… ë°©ì§€ (ì°½ì„ ë‹¤ì‹œ ëª» ì°¾ëŠ” ì‚¬ê³  ë°©ì§€)
+			if (alpha < 64)  alpha = 64;	//¿ÏÀü Åõ¸í ¹æÁö (Ã¢À» ´Ù½Ã ¸ø Ã£´Â »ç°í ¹æÁö)
 			m_alpha = static_cast<BYTE>(alpha);
 			SetLayeredWindowAttributes(0, m_alpha, LWA_ALPHA);
 			return TRUE;
@@ -450,26 +450,26 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 			DestroyWindow();
 			return TRUE;
 
-		case VK_ADD:		//ìˆ«ìíŒ¨ë“œ +
-		case VK_OEM_PLUS:	//ì¼ë°˜ í‚¤ë³´ë“œ = / + (Shift ì‹œ +)
+		case VK_ADD:		//¼ıÀÚÆĞµå +
+		case VK_OEM_PLUS:	//ÀÏ¹İ Å°º¸µå = / + (Shift ½Ã +)
 			m_img_dlg.zoom(1);
 			return TRUE;
 
-		case VK_SUBTRACT:	//ìˆ«ìíŒ¨ë“œ -
-		case VK_OEM_MINUS:	//ì¼ë°˜ í‚¤ë³´ë“œ -
+		case VK_SUBTRACT:	//¼ıÀÚÆĞµå -
+		case VK_OEM_MINUS:	//ÀÏ¹İ Å°º¸µå -
 			m_img_dlg.zoom(-1);
 			return TRUE;
 
-		case '0':			//ì¼ë°˜ í‚¤ë³´ë“œ 0
-		case VK_NUMPAD0:	//ìˆ«ìíŒ¨ë“œ 0
-			m_img_dlg.zoom(0);	//ì›ë³¸ 100% (ASee ì»¨ë²¤ì…˜)
+		case '0':			//ÀÏ¹İ Å°º¸µå 0
+		case VK_NUMPAD0:	//¼ıÀÚÆĞµå 0
+			m_img_dlg.zoom(0);	//¿øº» 100% (ASee ÄÁº¥¼Ç)
 			return TRUE;
 
-		//Ctrl ì¡°í•© â€” ì»¨í…ìŠ¤íŠ¸ ë©”ë‰´ ìº¡ì…˜ì— í‘œì‹œëœ ë‹¨ì¶•í‚¤. execute_cmd ë¡œ ë©”ë‰´ì™€ ë™ì¼ ê²½ë¡œ ì‹¤í–‰.
-		case 'C':	//Ctrl+C = í´ë¦½ë³´ë“œ ë³µì‚¬
-		case 'S':	//Ctrl+S = ì´ë¯¸ì§€ ì €ì¥
-		case 'W':	//Ctrl+W = 100% í¬ê¸°
-		case 'F':	//Ctrl+F = ì°½ì— ë§ì¶¤
+		//Ctrl Á¶ÇÕ ? ÄÁÅØ½ºÆ® ¸Ş´º Ä¸¼Ç¿¡ Ç¥½ÃµÈ ´ÜÃàÅ°. execute_cmd ·Î ¸Ş´º¿Í µ¿ÀÏ °æ·Î ½ÇÇà.
+		case 'C':	//Ctrl+C = Å¬¸³º¸µå º¹»ç
+		case 'S':	//Ctrl+S = ÀÌ¹ÌÁö ÀúÀå
+		case 'W':	//Ctrl+W = 100% Å©±â
+		case 'F':	//Ctrl+F = Ã¢¿¡ ¸ÂÃã
 			if (::GetAsyncKeyState(VK_CONTROL) & 0x8000)
 			{
 				int cmd = 0;
@@ -500,7 +500,7 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 				m_img_dlg.set_interpolation_mode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 				return TRUE;
 
-			//Alt+Left/Right = 15Â° íšŒì „, Alt+Shift+Left/Right = 1Â° íšŒì „.
+			//Alt+Left/Right = 15¡Æ È¸Àü, Alt+Shift+Left/Right = 1¡Æ È¸Àü.
 			case VK_LEFT:
 			case VK_RIGHT:
 			{
@@ -512,21 +512,21 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 			}
 		}
 	}
-	//WM_LBUTTONDOWN / WM_MOUSEMOVE / WM_LBUTTONUP ì€ m_img_dlg (CSCD2ImageDlg) ê°€ ìì²´ ì²˜ë¦¬.
-	//enable_pan=true ë¼ base ê°€ native pan ì²˜ë¦¬. ë¹„-Shift ë“œë˜ê·¸ëŠ” ë¶€ëª¨ì˜ OnNcHitTest ê°€
-	//HTCAPTION ìœ¼ë¡œ ë°˜í™˜í•´ Windows modal move ê°€ ì²˜ë¦¬.
+	//WM_LBUTTONDOWN / WM_MOUSEMOVE / WM_LBUTTONUP Àº m_img_dlg (CSCD2ImageDlg) °¡ ÀÚÃ¼ Ã³¸®.
+	//enable_pan=true ¶ó base °¡ native pan Ã³¸®. ºñ-Shift µå·¡±×´Â ºÎ¸ğÀÇ OnNcHitTest °¡
+	//HTCAPTION À¸·Î ¹İÈ¯ÇØ Windows modal move °¡ Ã³¸®.
 
 	return CDialog::PreTranslateMessage(pMsg);
 }
 
 void CSCCapturedNoteDlg::OnOK()
 {
-	//modeless ë‹¤ì´ì–¼ë¡œê·¸ë¼ base OnOK ì˜ EndDialog ëŠ” ì˜ë¯¸ ì—†ìŒ. Enter í‚¤ëŠ” ë¬´ì‹œ.
+	//modeless ´ÙÀÌ¾ó·Î±×¶ó base OnOK ÀÇ EndDialog ´Â ÀÇ¹Ì ¾øÀ½. Enter Å°´Â ¹«½Ã.
 }
 
 void CSCCapturedNoteDlg::OnCancel()
 {
-	//Esc ê°€ PreTranslate ì—ì„œ ë¯¸ì²˜ ì¡íˆì§€ ì•Šì€ ê²½ìš°ì˜ fallback. close button ë„ ì´ ê²½ë¡œ ì‚¬ìš©.
+	//Esc °¡ PreTranslate ¿¡¼­ ¹ÌÃ³ ÀâÈ÷Áö ¾ÊÀº °æ¿ìÀÇ fallback. close button µµ ÀÌ °æ·Î »ç¿ë.
 	DestroyWindow();
 }
 
@@ -538,17 +538,17 @@ void CSCCapturedNoteDlg::PostNcDestroy()
 
 BOOL CSCCapturedNoteDlg::OnNcActivate(BOOL bActive)
 {
-	// TODO: ì—¬ê¸°ì— ë©”ì‹œì§€ ì²˜ë¦¬ê¸° ì½”ë“œë¥¼ ì¶”ê°€ ë°/ë˜ëŠ” ê¸°ë³¸ê°’ì„ í˜¸ì¶œí•©ë‹ˆë‹¤.
+	// TODO: ¿©±â¿¡ ¸Ş½ÃÁö Ã³¸®±â ÄÚµå¸¦ Ãß°¡ ¹×/¶Ç´Â ±âº»°ªÀ» È£ÃâÇÕ´Ï´Ù.
 	return TRUE;
 	return CDialog::OnNcActivate(bActive);
 }
 
 void CSCCapturedNoteDlg::OnBnClickedCloseButton()
 {
-	//PostMessage ì¸ ì´ìœ : CGdiButton::OnLButtonUp ì´ BN_CLICKED ë°œì†¡ í›„ (line 2011) ì¶”ê°€ë¡œ
-	//CGdiButtonMessage ë°œì†¡ (line 2013) + parent->m_hWnd ë“± ì ‘ê·¼. ì—¬ê¸°ì„œ ë™ê¸° DestroyWindow ì‹œ
-	//note dlg ê°€ ì¦‰ì‹œ self-delete â†’ CGdiButton ì˜ ì”ì—¬ ì½”ë“œê°€ freed parent ì ‘ê·¼ â†’ use-after-free.
-	//PostMessage ë¡œ destroy ë¥¼ ë‹¤ìŒ ë©”ì‹œì§€ ì‚¬ì´í´ë¡œ ë¯¸ë£¸ â†’ CGdiButton ì˜ OnLButtonUp ì•ˆì „í•˜ê²Œ ì¢…ë£Œ.
+	//PostMessage ÀÎ ÀÌÀ¯: CGdiButton::OnLButtonUp ÀÌ BN_CLICKED ¹ß¼Û ÈÄ (line 2011) Ãß°¡·Î
+	//CGdiButtonMessage ¹ß¼Û (line 2013) + parent->m_hWnd µî Á¢±Ù. ¿©±â¼­ µ¿±â DestroyWindow ½Ã
+	//note dlg °¡ Áï½Ã self-delete ¡æ CGdiButton ÀÇ ÀÜ¿© ÄÚµå°¡ freed parent Á¢±Ù ¡æ use-after-free.
+	//PostMessage ·Î destroy ¸¦ ´ÙÀ½ ¸Ş½ÃÁö »çÀÌÅ¬·Î ¹Ì·ë ¡æ CGdiButton ÀÇ OnLButtonUp ¾ÈÀüÇÏ°Ô Á¾·á.
 	PostMessage(WM_COMMAND, IDCANCEL);
 }
 
@@ -556,8 +556,8 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 {
 	return;
 
-	//m_img_dlg ì˜ OnPaint ê°€ D2D BeginDraw / EndDraw ì‚¬ì´ì—ì„œ í˜¸ì¶œ â†’ ê°™ì€ frame ì— ì˜¤ë²„ë ˆì´.
-	//í…ŒìŠ¤íŠ¸ìš© ë¹¨ê°„ ì‚¬ê°í˜• (ì¢Œìƒë‹¨ 20,20 ë¶€í„° 100x60).
+	//m_img_dlg ÀÇ OnPaint °¡ D2D BeginDraw / EndDraw »çÀÌ¿¡¼­ È£Ãâ ¡æ °°Àº frame ¿¡ ¿À¹ö·¹ÀÌ.
+	//Å×½ºÆ®¿ë »¡°£ »ç°¢Çü (ÁÂ»ó´Ü 20,20 ºÎÅÍ 100x60).
 	if (!d2dc)
 		return;
 
@@ -573,15 +573,15 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 
 void CSCCapturedNoteDlg::OnNcMouseMove(UINT nHitTest, CPoint point)
 {
-	//point ëŠ” screen ì¢Œí‘œ. OnNcHitTest ê°€ client ì˜ì—­ì— ëŒ€í•´ HTCAPTION ì„ ë¦¬í„´í•˜ë¯€ë¡œ
-	//client ìœ„ ë§ˆìš°ìŠ¤ ì´ë™ë„ ëª¨ë‘ ì—¬ê¸°ë¡œ ì˜´ (resize ë³´ë”ì˜ HTTOP/HTRIGHT ë“±ë„ í¬í•¨).
+	//point ´Â screen ÁÂÇ¥. OnNcHitTest °¡ client ¿µ¿ª¿¡ ´ëÇØ HTCAPTION À» ¸®ÅÏÇÏ¹Ç·Î
+	//client À§ ¸¶¿ì½º ÀÌµ¿µµ ¸ğµÎ ¿©±â·Î ¿È (resize º¸´õÀÇ HTTOP/HTRIGHT µîµµ Æ÷ÇÔ).
 	TRACE(_T("nc mouse move. hit=%u screen=(%d, %d)\n"), nHitTest, point.x, point.y);
 	//m_pt_mouse = point;
 	CRect rc;
 	GetClientRect(rc);
 	ScreenToClient(&point);
 
-	//ë²„íŠ¼ (20x20 + margin 2 = ìš°ìƒë‹¨ 24x24 ì˜ì—­) ìœ„ì— ë§ˆìš°ìŠ¤ê°€ ìˆì„ ë•Œë§Œ í‘œì‹œ.
+	//¹öÆ° (20x20 + margin 2 = ¿ì»ó´Ü 24x24 ¿µ¿ª) À§¿¡ ¸¶¿ì½º°¡ ÀÖÀ» ¶§¸¸ Ç¥½Ã.
 	if (point.x > rc.Width() - 24 && point.y < 24)
 		m_button_close.ShowWindow(SW_SHOW);
 	else

@@ -46,19 +46,21 @@ namespace
 		ToolCat		cat;
 	};
 
+	//menu_text 에는 더 이상 `(&X)` 액셀러레이터를 두지 않는다.
+	//툴 항목은 모두 글로벌 단축키(kHotkeys) 가 있으므로 메뉴 표시 시점에 `\tAlt+Shift+X` 형태로 자동 부착.
 	const ToolItem kTools[] =
 	{
 		//Capture
-		{ ID_TOOL_CAPTURE_FULLSCREEN, _T("전체 화면 캡처"),       _T("전체 화면 캡처(&F)"),       kCatCapture },
-		{ ID_TOOL_CAPTURE_WINDOW,     _T("창 캡처"),               _T("창 캡처(&W)"),               kCatCapture },
-		{ ID_TOOL_CAPTURE_REGION,     _T("영역 캡처"),             _T("영역 캡처(&R)"),             kCatCapture },
-		{ ID_TOOL_PASTE_CLIPBOARD,    _T("클립보드 이미지 띠우기"),_T("클립보드 이미지 띠우기(&V)"),kCatCapture },
+		{ ID_TOOL_CAPTURE_FULLSCREEN, _T("전체 화면 캡처"),       _T("전체 화면 캡처"),         kCatCapture },
+		{ ID_TOOL_CAPTURE_WINDOW,     _T("창 캡처"),               _T("창 캡처"),                 kCatCapture },
+		{ ID_TOOL_CAPTURE_REGION,     _T("영역 캡처"),             _T("영역 캡처"),               kCatCapture },
+		{ ID_TOOL_PASTE_CLIPBOARD,    _T("클립보드 이미지 띠우기"),_T("클립보드 이미지 띠우기"),  kCatCapture },
 		//Color
-		{ ID_TOOL_COLOR_PICKER,       _T("컬러 피커..."),          _T("컬러 피커(&C)..."),          kCatColor },
-		{ ID_TOOL_DROPPER,            _T("화면 돋보기..."),        _T("화면 돋보기(&M)..."),        kCatColor },
+		{ ID_TOOL_COLOR_PICKER,       _T("컬러 피커..."),          _T("컬러 피커..."),            kCatColor },
+		{ ID_TOOL_DROPPER,            _T("화면 돋보기..."),        _T("화면 돋보기..."),          kCatColor },
 		//Measure
-		{ ID_TOOL_PROTRACTOR,         _T("각도기"),                _T("각도기(&P)"),                kCatMeasure },
-		{ ID_TOOL_RULER,              _T("줄자"),                  _T("줄자(&L)"),                  kCatMeasure },
+		{ ID_TOOL_PROTRACTOR,         _T("각도기"),                _T("각도기"),                  kCatMeasure },
+		{ ID_TOOL_RULER,              _T("줄자"),                  _T("줄자"),                    kCatMeasure },
 	};
 
 	struct CategoryInfo
@@ -95,6 +97,84 @@ namespace
 				return &t;
 		}
 		return nullptr;
+	}
+
+	//===== 글로벌 단축키 =====
+	//RegisterHotKey 으로 OS 에 등록 → WM_HOTKEY 로 수신 → wParam=id 로 tool_id 찾아 WM_COMMAND 위임.
+	//ON_COMMAND 핸들러를 그대로 재사용하므로 새 단축키 추가 시 이 표에 한 줄만 추가.
+	struct HotkeyItem
+	{
+		int			id;				//RegisterHotKey ID (per-window 1~0xBFFF)
+		UINT		tool_id;		//ID_TOOL_* — WM_COMMAND 으로 dispatch
+		UINT		modifiers;		//MOD_ALT | MOD_SHIFT | ... (MOD_NOREPEAT 권장)
+		UINT		vkey;
+		LPCTSTR		description;	//등록 실패 알림 / 향후 설정 다이얼로그용
+	};
+
+	//모니터 캡처 단축키는 모니터 개수에 따라 동적 — kHotkeys 와 ID 충돌 피하려고 100 base 사용.
+	//Alt+Shift+'1'..'9' 까지 최대 9 개 모니터 지원.
+	const int kMonitorHotkeyIdBase = 100;
+	const int kMonitorHotkeyMaxCount = 9;
+
+	const HotkeyItem kHotkeys[] =
+	{
+		{ 1, ID_TOOL_CAPTURE_WINDOW,     MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'S', _T("창 캡처 (Alt+Shift+S)") },
+		{ 2, ID_TOOL_CAPTURE_FULLSCREEN, MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'F', _T("전체 화면 캡처 (Alt+Shift+F)") },
+		{ 3, ID_TOOL_CAPTURE_REGION,     MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'R', _T("영역 캡처 (Alt+Shift+R)") },
+		{ 4, ID_TOOL_PASTE_CLIPBOARD,    MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'V', _T("클립보드 이미지 띠우기 (Alt+Shift+V)") },
+		{ 5, ID_TOOL_COLOR_PICKER,       MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'C', _T("컬러 피커 (Alt+Shift+C)") },
+		{ 6, ID_TOOL_DROPPER,            MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'M', _T("화면 돋보기 (Alt+Shift+M)") },
+		{ 7, ID_TOOL_PROTRACTOR,         MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'P', _T("각도기 (Alt+Shift+P)") },
+		{ 8, ID_TOOL_RULER,              MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'L', _T("줄자 (Alt+Shift+L)") },
+	};
+
+	UINT find_tool_id_by_hotkey_id(int hotkey_id)
+	{
+		for (const HotkeyItem& h : kHotkeys)
+		{
+			if (h.id == hotkey_id)
+				return h.tool_id;
+		}
+		return 0;
+	}
+
+	const HotkeyItem* find_hotkey_for_tool(UINT tool_id)
+	{
+		for (const HotkeyItem& h : kHotkeys)
+		{
+			if (h.tool_id == tool_id)
+				return &h;
+		}
+		return nullptr;
+	}
+
+	//"Alt+Shift+F" 형태로 단축키 표시 문자열 생성. 향후 다른 modifier 조합 추가 시 그대로 동작.
+	CString format_hotkey_text(UINT modifiers, UINT vkey)
+	{
+		CString s;
+		if (modifiers & MOD_CONTROL) s += _T("Ctrl+");
+		if (modifiers & MOD_ALT)     s += _T("Alt+");
+		if (modifiers & MOD_SHIFT)   s += _T("Shift+");
+		if (modifiers & MOD_WIN)     s += _T("Win+");
+
+		if ((vkey >= 'A' && vkey <= 'Z') || (vkey >= '0' && vkey <= '9'))
+		{
+			s += (TCHAR)vkey;
+		}
+		else
+		{
+			//F1..F24, 기타 가상키 추가 시 케이스 확장. 지금은 unreachable.
+			CString k;
+			k.Format(_T("VK_0x%02X"), vkey);
+			s += k;
+		}
+		return s;
+	}
+
+	CString hotkey_text_for_tool(UINT tool_id)
+	{
+		const HotkeyItem* h = find_hotkey_for_tool(tool_id);
+		return h ? format_hotkey_text(h->modifiers, h->vkey) : CString();
 	}
 }
 
@@ -147,7 +227,7 @@ void CSCDeskToolsDlg::DoDataExchange(CDataExchange* pDX)
 	CDialogEx::DoDataExchange(pDX);
 }
 
-UINT CSCDeskToolsDlg::s_msg_taskbar_created = ::RegisterWindowMessage(_T("TaskbarCreated"));
+UINT CSCDeskToolsDlg::Message_TaskbarCreated = ::RegisterWindowMessage(_T("TaskbarCreated"));
 
 BEGIN_MESSAGE_MAP(CSCDeskToolsDlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
@@ -158,8 +238,11 @@ BEGIN_MESSAGE_MAP(CSCDeskToolsDlg, CDialogEx)
 	ON_WM_CONTEXTMENU()
 	ON_MESSAGE(WM_SYSTRAYMSG, &CSCDeskToolsDlg::on_message_CSysTrayIcon)
 	ON_REGISTERED_MESSAGE(Message_CSCColorPicker, &CSCDeskToolsDlg::on_message_CSCColorPicker)
-	ON_REGISTERED_MESSAGE(s_msg_taskbar_created, &CSCDeskToolsDlg::OnTaskbarCreated)
+	ON_REGISTERED_MESSAGE(Message_TaskbarCreated, &CSCDeskToolsDlg::on_message_TaskbarCreated)
+	ON_MESSAGE(Message_HideOnStartup, &CSCDeskToolsDlg::on_message_HideOnStartup)
 	ON_MESSAGE(WM_CLIPBOARDUPDATE, &CSCDeskToolsDlg::OnClipboardUpdate)
+	ON_MESSAGE(WM_HOTKEY, &CSCDeskToolsDlg::on_hotkey)
+	ON_MESSAGE(WM_DISPLAYCHANGE, &CSCDeskToolsDlg::on_display_change)
 	ON_COMMAND(ID_TOOL_COLOR_PICKER, &CSCDeskToolsDlg::OnToolColorPicker)
 	ON_COMMAND(ID_TOOL_DROPPER, &CSCDeskToolsDlg::OnToolDropper)
 	ON_COMMAND(ID_TOOL_CAPTURE_WINDOW, &CSCDeskToolsDlg::OnToolCaptureWindow)
@@ -214,8 +297,21 @@ BOOL CSCDeskToolsDlg::OnInitDialog()
 	//기본 즐겨찾기 채우기 (추후: 레지스트리에서 읽기 → 설정창 편집 가능).
 	m_favorites.assign(std::begin(kDefaultFavorites), std::end(kDefaultFavorites));
 
+	//.rc 의 디폴트(480x325) 보다 작게 — 8 즐겨찾기 + 개발 종료 버튼이 깔끔히 들어가는 컴팩트 크기.
+	//build_buttons 가 GetClientRect 로 배치하므로 반드시 그 전에 호출.
+	{
+		//높이 = top_margin(14) + 4행 * btn_h(50) + 3 gap * 10 + bottom_margin(14) = 258.
+		//(개발 종료 버튼이 숨김 처리되어 그 공간을 그대로 도려냄.)
+		const int target_client_w = 320;
+		const int target_client_h = 258;
+		CRect target(0, 0, target_client_w, target_client_h);
+		::AdjustWindowRectEx(&target, GetStyle(), FALSE, GetExStyle());
+		SetWindowPos(NULL, 0, 0, target.Width(), target.Height(),
+			SWP_NOMOVE | SWP_NOZORDER);
+	}
+
 	build_buttons();
-	build_dev_exit_button();
+	build_exit_button();
 
 	m_sys_tray.SetParent(m_hWnd);
 	HICON hIconTray = ::AfxGetApp()->LoadIcon(IDR_MAINFRAME);
@@ -229,9 +325,18 @@ BOOL CSCDeskToolsDlg::OnInitDialog()
 	::AddClipboardFormatListener(m_hWnd);
 	update_paste_clipboard_state();
 
+	register_global_hotkeys();
+	//프로그램 시작 시 모니터 정보 + 모니터 단축키 초기 등록.
+	register_monitor_hotkeys();
+
 	SetWindowPos(&wndTopMost, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
 
 	RestoreWindowPosition(&theApp, this, _T(""), false, false);
+
+	//트레이 상주 앱 — 시작 시 메인 창 숨김. 트레이 더블클릭/단축키/우클릭 메뉴로 표시.
+	//OnInitDialog 안에서 ShowWindow(SW_HIDE) 호출하면 다이얼로그 매니저가 다시 보이게 만들 수 있어
+	//PostMessage 로 첫 페인트 직후 시점에 숨김 처리. (브리프 플래시 가능하지만 허용)
+	PostMessage(Message_HideOnStartup);
 
 	return TRUE;  // 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
 }
@@ -240,7 +345,7 @@ void CSCDeskToolsDlg::build_buttons()
 {
 	//m_favorites 의 ID 들을 순서대로 텍스트 버튼으로 배치. ID 는 ON_COMMAND 가 자동 처리.
 	//추후 아이콘 포함 버튼 (CSCButton 등) 으로 교체 가능.
-	m_btns_favorite.clear();
+	m_buttons_favorite.clear();
 
 	CRect rc_client;
 	GetClientRect(rc_client);
@@ -250,7 +355,8 @@ void CSCDeskToolsDlg::build_buttons()
 	const int gap_y  = 10;
 	const int cols   = 2;
 	const int btn_w  = (rc_client.Width() - margin * 2 - gap_x * (cols - 1)) / cols;
-	const int btn_h  = 36;
+	//두 줄 캡션 (기능명 / 글로벌 단축키) 수용 위해 한 줄짜리 36 → 50.
+	const int btn_h  = 50;
 
 	for (size_t i = 0; i < m_favorites.size(); ++i)
 	{
@@ -263,21 +369,30 @@ void CSCDeskToolsDlg::build_buttons()
 		const int x = margin + col * (btn_w + gap_x);
 		const int y = margin + row * (btn_h + gap_y);
 
+		//1행 = 기능명, 2행 = 글로벌 단축키. 단축키 미등록 항목은 1행만.
+		CString caption = tool->button_text;
+		CString hotkey  = hotkey_text_for_tool(tool->id);
+		if (!hotkey.IsEmpty())
+		{
+			caption += _T("\n");
+			caption += hotkey;
+		}
+
 		auto btn = std::make_unique<CButton>();
 		CRect rc_btn(x, y, x + btn_w, y + btn_h);
-		btn->Create(tool->button_text,
-			WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+		btn->Create(caption,
+			WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_MULTILINE,
 			rc_btn, this, tool->id);
 		btn->SetFont(GetFont());
-		m_btns_favorite.push_back(std::move(btn));
+		m_buttons_favorite.push_back(std::move(btn));
 	}
 }
 
-void CSCDeskToolsDlg::build_dev_exit_button()
+void CSCDeskToolsDlg::build_exit_button()
 {
-	//개발 단계 편의용 영구 종료 버튼. 우측 하단 고정.
-	//ID_SC_EXIT 사용 → ON_COMMAND 가 OnAppExit (EndDialog) 으로 라우팅.
-	//배포 시 OnInitDialog 에서 이 호출만 제거하면 됨.
+	//우측 하단 종료 버튼. ID_SC_EXIT 사용 → ON_COMMAND 가 OnAppExit (EndDialog) 으로 라우팅.
+	//현재는 트레이/SC_MINIMIZE/[X] 흐름이 정착돼 평소엔 불필요 → WS_VISIBLE 제거로 숨김 처리.
+	//다시 보이려면 아래 Create 의 스타일에 WS_VISIBLE 을 도로 추가 (또는 m_button_exit.ShowWindow(SW_SHOW)).
 	CRect rc_client;
 	GetClientRect(rc_client);
 
@@ -291,10 +406,10 @@ void CSCDeskToolsDlg::build_dev_exit_button()
 		rc_client.right  - margin,
 		rc_client.bottom - margin);
 
-	m_btn_dev_exit.Create(_T("종료"),
-		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+	m_button_exit.Create(_T("종료"),
+		WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
 		rc_btn, this, ID_SC_EXIT);
-	m_btn_dev_exit.SetFont(GetFont());
+	m_button_exit.SetFont(GetFont());
 }
 
 void CSCDeskToolsDlg::show_tools_popup_menu(CPoint pt_screen)
@@ -318,23 +433,35 @@ void CSCDeskToolsDlg::show_tools_popup_menu(CPoint pt_screen)
 			UINT flags = MF_STRING;
 			if (t.id == ID_TOOL_PASTE_CLIPBOARD && !clipboard_has_image())
 				flags |= MF_GRAYED;
-			sub.AppendMenu(flags, t.id, t.menu_text);
+
+			//"기능명\tAlt+Shift+X" — Tab 이후 부분은 OS 가 메뉴 우측에 정렬해 표시.
+			//단축키 미등록 항목은 Tab 자체를 생략.
+			CString item_text = t.menu_text;
+			CString hotkey    = hotkey_text_for_tool(t.id);
+			if (!hotkey.IsEmpty())
+			{
+				item_text += _T("\t");
+				item_text += hotkey;
+			}
+			sub.AppendMenu(flags, t.id, item_text);
 
 			//전체 화면 캡처 바로 다음에 모니터별 캡처 서브메뉴 (모니터 2개 이상일 때만).
 			if (t.id == ID_TOOL_CAPTURE_FULLSCREEN)
 			{
-				std::vector<CRect> monitors;
-				enum_monitor_rects(monitors);
-				if (monitors.size() >= 2)
+				enum_display_monitors();	//Common: g_monitors 갱신
+				if (g_monitors.size() >= 2)
 				{
 					CMenu sub_mon;
 					sub_mon.CreatePopupMenu();
-					const size_t max_n = std::min<size_t>(monitors.size(),
+					const size_t max_n = std::min<size_t>(g_monitors.size(),
 						ID_TOOL_CAPTURE_MONITOR_LAST - ID_TOOL_CAPTURE_MONITOR_FIRST + 1);
 					for (size_t i = 0; i < max_n; ++i)
 					{
 						CString s;
 						s.Format(_T("%d번 모니터 캡처"), int(i + 1));
+						//모니터 단축키도 처음 9 개까지 Alt+Shift+1..9 로 표시.
+						if (i < kMonitorHotkeyMaxCount)
+							s.AppendFormat(_T("\tAlt+Shift+%d"), int(i + 1));
 						sub_mon.AppendMenu(MF_STRING, ID_TOOL_CAPTURE_MONITOR_FIRST + UINT(i), s);
 					}
 					sub.AppendMenu(MF_POPUP, (UINT_PTR)sub_mon.Detach(), _T("모니터별 캡처"));
@@ -375,6 +502,11 @@ void CSCDeskToolsDlg::OnSysCommand(UINT nID, LPARAM lParam)
 	{
 		CAboutDlg dlgAbout;
 		dlgAbout.DoModal();
+	}
+	else if ((nID & 0xFFF0) == SC_MINIMIZE)
+	{
+		//최소화 = 트레이로 숨김 (작업표시줄 점유 X). 트레이 더블클릭 / 글로벌 단축키로 복귀.
+		ShowWindow(SW_HIDE);
 	}
 	else
 	{
@@ -427,9 +559,113 @@ void CSCDeskToolsDlg::OnClose()
 
 void CSCDeskToolsDlg::OnDestroy()
 {
+	unregister_monitor_hotkeys();
+	unregister_global_hotkeys();
 	::RemoveClipboardFormatListener(m_hWnd);
 	m_sys_tray.DeleteIcon(1);
 	CDialogEx::OnDestroy();
+}
+
+void CSCDeskToolsDlg::register_global_hotkeys()
+{
+	//다른 앱이 이미 잡고 있는 조합은 등록 실패 — 실패 항목만 모아 트레이 풍선으로 알림.
+	//RegisterHotKey TRUE 인데도 WM_HOTKEY 가 안 오면 다른 앱의 WH_KEYBOARD_LL hook 가로채기.
+	//(NVIDIA GeForce Experience, Xbox Game Bar, Discord, OBS 등이 흔한 범인.)
+	CString failed;
+	for (const HotkeyItem& h : kHotkeys)
+	{
+		BOOL ok = ::RegisterHotKey(m_hWnd, h.id, h.modifiers, h.vkey);
+		DWORD err = ok ? 0 : ::GetLastError();
+		TRACE(_T("[hotkey] RegisterHotKey id=%d %s -> %s (err=%lu)\n"),
+			h.id, h.description, ok ? _T("OK") : _T("FAIL"), err);
+
+		if (!ok)
+		{
+			if (!failed.IsEmpty())
+				failed += _T(", ");
+			failed += h.description;
+		}
+	}
+
+	if (!failed.IsEmpty())
+	{
+		CString msg;
+		msg.Format(_T("다음 단축키가 다른 앱과 충돌하여 등록되지 않았습니다:\n%s"), (LPCTSTR)failed);
+		m_sys_tray.ShowBalloon(1, _T("SCDeskTools"), msg, NIIF_WARNING);
+	}
+}
+
+void CSCDeskToolsDlg::unregister_global_hotkeys()
+{
+	//등록 실패한 ID 에 대해서도 UnregisterHotKey 는 무해 (FALSE 만 반환).
+	for (const HotkeyItem& h : kHotkeys)
+		::UnregisterHotKey(m_hWnd, h.id);
+}
+
+void CSCDeskToolsDlg::register_monitor_hotkeys()
+{
+	//기존 동적 등록분 해제 후 g_monitors 갱신 → 현재 개수만큼 재등록.
+	//단일 모니터일 때는 등록 생략 (전체 화면 캡처와 동일하므로 단축키 낭비).
+	unregister_monitor_hotkeys();
+
+	enum_display_monitors();	//Common — g_monitors 채움
+	if (g_monitors.size() < 2)
+		return;
+
+	const int n = static_cast<int>(std::min<size_t>(g_monitors.size(), kMonitorHotkeyMaxCount));
+	for (int i = 0; i < n; ++i)
+	{
+		const UINT vkey = '1' + UINT(i);	//Alt+Shift+'1'..'9'
+		const int  id   = kMonitorHotkeyIdBase + i;
+		BOOL ok = ::RegisterHotKey(m_hWnd, id,
+			MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, vkey);
+		TRACE(_T("[hotkey] RegisterHotKey monitor %d Alt+Shift+%d -> %s (err=%lu)\n"),
+			i + 1, i + 1, ok ? _T("OK") : _T("FAIL"), ok ? 0UL : ::GetLastError());
+	}
+	m_registered_monitor_count = n;
+}
+
+void CSCDeskToolsDlg::unregister_monitor_hotkeys()
+{
+	for (int i = 0; i < m_registered_monitor_count; ++i)
+		::UnregisterHotKey(m_hWnd, kMonitorHotkeyIdBase + i);
+	m_registered_monitor_count = 0;
+}
+
+LRESULT CSCDeskToolsDlg::on_hotkey(WPARAM wParam, LPARAM /*lParam*/)
+{
+	//기존 ON_COMMAND 핸들러로 위임 — 메뉴 / 버튼 / 단축키 단일 진입점 유지.
+	const int hotkey_id = static_cast<int>(wParam);
+
+	//1) 정적 툴 단축키 (kHotkeys, id 1..8)
+	UINT tool_id = find_tool_id_by_hotkey_id(hotkey_id);
+	if (tool_id != 0)
+	{
+		TRACE(_T("[hotkey] WM_HOTKEY id=%d -> tool_id=0x%X\n"), hotkey_id, tool_id);
+		SendMessage(WM_COMMAND, MAKEWPARAM(tool_id, 0), 0);
+		return 0;
+	}
+
+	//2) 동적 모니터 단축키 (kMonitorHotkeyIdBase + i)
+	if (hotkey_id >= kMonitorHotkeyIdBase &&
+		hotkey_id <  kMonitorHotkeyIdBase + kMonitorHotkeyMaxCount)
+	{
+		const int monitor_idx = hotkey_id - kMonitorHotkeyIdBase;
+		const UINT mon_id = ID_TOOL_CAPTURE_MONITOR_FIRST + UINT(monitor_idx);
+		TRACE(_T("[hotkey] WM_HOTKEY monitor idx=%d -> 0x%X\n"), monitor_idx, mon_id);
+		SendMessage(WM_COMMAND, MAKEWPARAM(mon_id, 0), 0);
+		return 0;
+	}
+
+	return 0;
+}
+
+LRESULT CSCDeskToolsDlg::on_display_change(WPARAM /*wParam*/, LPARAM /*lParam*/)
+{
+	//모니터 핫플러그·해상도 변경 — 모니터 캐시 갱신 + 단축키 재등록.
+	//정적 툴 단축키(kHotkeys) 는 디스플레이 무관이라 재등록 불필요.
+	register_monitor_hotkeys();
+	return 0;
 }
 
 void CSCDeskToolsDlg::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
@@ -457,7 +693,7 @@ bool CSCDeskToolsDlg::clipboard_has_image() const
 void CSCDeskToolsDlg::update_paste_clipboard_state()
 {
 	const BOOL enable = clipboard_has_image() ? TRUE : FALSE;
-	for (auto& btn : m_btns_favorite)
+	for (auto& btn : m_buttons_favorite)
 	{
 		if (btn->GetSafeHwnd() && btn->GetDlgCtrlID() == ID_TOOL_PASTE_CLIPBOARD)
 		{
@@ -494,7 +730,7 @@ LRESULT CSCDeskToolsDlg::on_message_CSysTrayIcon(WPARAM wParam, LPARAM lParam)
 	return 0;
 }
 
-LRESULT CSCDeskToolsDlg::OnTaskbarCreated(WPARAM, LPARAM)
+LRESULT CSCDeskToolsDlg::on_message_TaskbarCreated(WPARAM, LPARAM)
 {
 	//Shell_TrayWnd 가 (재)생성될 때 모든 top-level 창에 브로드캐스트.
 	//시작프로그램 부팅 시 셸이 늦거나 Explorer 크래시 후 재시작에 대비.
@@ -503,6 +739,12 @@ LRESULT CSCDeskToolsDlg::OnTaskbarCreated(WPARAM, LPARAM)
 	HICON hIconTray = ::AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	m_sys_tray.CreateIcon(hIconTray, 1, _T("SCDeskTools"));
 	m_sys_tray.ShowIcon(1);
+	return 0;
+}
+
+LRESULT CSCDeskToolsDlg::on_message_HideOnStartup(WPARAM, LPARAM)
+{
+	ShowWindow(SW_HIDE);
 	return 0;
 }
 
@@ -698,45 +940,26 @@ void CSCDeskToolsDlg::capture_screen_rect(const CRect& rc_screen)
 	::ReleaseDC(NULL, hdc_screen);
 }
 
-void CSCDeskToolsDlg::enum_monitor_rects(std::vector<CRect>& out) const
-{
-	out.clear();
-	::EnumDisplayMonitors(NULL, NULL,
-		[](HMONITOR /*h*/, HDC /*hdc*/, LPRECT pRect, LPARAM lp) -> BOOL
-		{
-			auto* vec = reinterpret_cast<std::vector<CRect>*>(lp);
-			vec->push_back(CRect(*pRect));
-			return TRUE;
-		},
-		reinterpret_cast<LPARAM>(&out));
-}
-
 void CSCDeskToolsDlg::OnToolCaptureFullscreen()
 {
-	//전체 가상 데스크톱(모든 모니터) 캡처.
+	//전체 가상 데스크톱(모든 모니터) 캡처. Common 의 get_monitor_rect(-1) 가 SM_*VIRTUALSCREEN 조합 대체.
 	HideFloating hide(this);
 	Wait(200);
 
-	CRect rc_virtual(
-		::GetSystemMetrics(SM_XVIRTUALSCREEN),
-		::GetSystemMetrics(SM_YVIRTUALSCREEN),
-		::GetSystemMetrics(SM_XVIRTUALSCREEN) + ::GetSystemMetrics(SM_CXVIRTUALSCREEN),
-		::GetSystemMetrics(SM_YVIRTUALSCREEN) + ::GetSystemMetrics(SM_CYVIRTUALSCREEN));
-	capture_screen_rect(rc_virtual);
+	capture_screen_rect(get_monitor_rect(-1));
 }
 
 void CSCDeskToolsDlg::OnToolCaptureMonitor(UINT nID)
 {
 	//ID_TOOL_CAPTURE_MONITOR_FIRST + i 형태로 들어옴.
 	const int idx = int(nID - ID_TOOL_CAPTURE_MONITOR_FIRST);
-	std::vector<CRect> monitors;
-	enum_monitor_rects(monitors);
-	if (idx < 0 || idx >= int(monitors.size()))
+	enum_display_monitors();	//Common: g_monitors 갱신 (핫플러그/해상도 변경 대응)
+	if (idx < 0 || idx >= int(g_monitors.size()))
 		return;
 
 	HideFloating hide(this);
 	Wait(200);
-	capture_screen_rect(monitors[idx]);
+	capture_screen_rect(g_monitors[idx].rMonitor);
 }
 
 void CSCDeskToolsDlg::OnToolCaptureWindow()

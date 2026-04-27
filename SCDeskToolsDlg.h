@@ -37,17 +37,22 @@ protected:
 	//메인 창에 노출할 즐겨찾기 툴 ID 목록. 향후 설정창에서 편집 → 레지스트리 저장 예정.
 	//지금은 OnInitDialog 에서 kDefaultFavorites 로 초기화.
 	std::vector<UINT>							m_favorites;
-	std::vector<std::unique_ptr<CButton>>		m_btns_favorite;	//m_favorites 와 1:1 매핑, 동적 생성.
+	std::vector<std::unique_ptr<CButton>>		m_buttons_favorite;	//m_favorites 와 1:1 매핑, 동적 생성.
 
-	//개발 편의용 영구 종료 버튼. 트레이에서 종료하는 절차 생략 위해 우측 하단에 항상 노출.
-	//배포 시 build_dev_exit_button 호출만 빼면 깔끔히 제거 가능.
-	CButton			m_btn_dev_exit;
+	//우측 하단 종료 버튼. 현재는 숨김 (build_exit_button 의 Create 스타일에 WS_VISIBLE 없음).
+	//트레이 종료 절차를 거치기 번거로울 때 도로 노출하면 한 번 클릭으로 종료 가능.
+	CButton			m_button_exit;
 
 	void			build_buttons();
-	void			build_dev_exit_button();
+	void			build_exit_button();
+	void			register_global_hotkeys();
+	void			unregister_global_hotkeys();
+	//모니터별 캡처 단축키는 동적 — 시작 시 + WM_DISPLAYCHANGE 시 재등록.
+	void			register_monitor_hotkeys();
+	void			unregister_monitor_hotkeys();
+	int				m_registered_monitor_count = 0;	//현재 등록된 모니터 단축키 개수
 	void			send_image_to_clipboard_and_note(const BYTE* bgra_top_down, int w, int h, POINT note_pos);
 	void			capture_screen_rect(const CRect& rc_screen);
-	void			enum_monitor_rects(std::vector<CRect>& out) const;
 	void			show_tools_popup_menu(CPoint pt_screen);
 	void			toggle_main_window();
 	bool			clipboard_has_image() const;
@@ -90,12 +95,22 @@ protected:
 
 	// 시작프로그램으로 실행 시 Shell_TrayWnd 가 뒤늦게 올라오는 경우 복구.
 	// Explorer 크래시 후 재시작에도 동일하게 사용.
-	static UINT s_msg_taskbar_created;
-	afx_msg LRESULT OnTaskbarCreated(WPARAM wParam, LPARAM lParam);
+	static UINT Message_TaskbarCreated;
+	afx_msg LRESULT on_message_TaskbarCreated(WPARAM wParam, LPARAM lParam);
+
+	//시작 시 메인 창 숨김 — OnInitDialog 끝에서 PostMessage 로 던져 첫 페인트 직후 처리.
+	enum : UINT { Message_HideOnStartup = WM_USER + 100 };
+	afx_msg LRESULT on_message_HideOnStartup(WPARAM wParam, LPARAM lParam);
 
 	//Vista+ clipboard listener: 클립보드가 변할 때마다 WM_CLIPBOARDUPDATE 가 도착.
 	//SetClipboardViewer 체인 방식과 달리 체인 끊김 없음.
 	afx_msg LRESULT OnClipboardUpdate(WPARAM wParam, LPARAM lParam);
+
+	//글로벌 단축키 (RegisterHotKey 으로 등록). wParam = kHotkeys 의 id.
+	afx_msg LRESULT on_hotkey(WPARAM wParam, LPARAM lParam);
+
+	//WM_DISPLAYCHANGE — 모니터 구성 변경 시 g_monitors 갱신 + 모니터 단축키 재등록.
+	afx_msg LRESULT on_display_change(WPARAM wParam, LPARAM lParam);
 
 	DECLARE_MESSAGE_MAP()
 public:

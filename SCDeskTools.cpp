@@ -28,8 +28,17 @@ CSCDeskToolsApp::CSCDeskToolsApp()
 
 	// TODO: 여기에 생성 코드를 추가합니다.
 	// InitInstance에 모든 중요한 초기화 작업을 배치합니다.
+	m_hMutex = nullptr;
 }
 
+CSCDeskToolsApp::~CSCDeskToolsApp()
+{
+	if (m_hMutex)
+	{
+		::ReleaseMutex(m_hMutex);
+		m_hMutex = nullptr;
+	}
+}
 
 // 유일한 CSCDeskToolsApp 개체입니다.
 
@@ -40,6 +49,11 @@ CSCDeskToolsApp theApp;
 
 BOOL CSCDeskToolsApp::InitInstance()
 {
+	m_hMutex = ::CreateMutex(nullptr, FALSE, _T("MUTEX_OF_CSCDeskTools"));
+
+	if (::GetLastError() == ERROR_ALREADY_EXISTS)
+		return FALSE;
+
 	// Windows XP에서는 InitCommonControlsEx()를 필요로 합니다.
 	// 사용하도록 지정하는 경우, Windows XP 상에서 반드시 InitCommonControlsEx()가 필요합니다.
 	// InitCommonControlsEx()를 사용하지 않으면 창을 만들 수 없습니다.
@@ -105,3 +119,10 @@ BOOL CSCDeskToolsApp::InitInstance()
 	return FALSE;
 }
 
+
+int CSCDeskToolsApp::ExitInstance()
+{
+	// TODO: 여기에 특수화된 코드를 추가 및/또는 기본 클래스를 호출합니다.
+
+	return CWinApp::ExitInstance();
+}

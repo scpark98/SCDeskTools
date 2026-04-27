@@ -19,6 +19,9 @@ class CSCDeskToolsApp : public CWinApp
 {
 public:
 	CSCDeskToolsApp();
+	~CSCDeskToolsApp();
+
+	HANDLE		m_hMutex;
 
 // 재정의입니다.
 public:
@@ -27,6 +30,7 @@ public:
 // 구현입니다.
 
 	DECLARE_MESSAGE_MAP()
+	virtual int ExitInstance();
 };
 
 extern CSCDeskToolsApp theApp;
