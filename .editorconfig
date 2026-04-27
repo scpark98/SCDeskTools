@@ -1,0 +1,23 @@
+root = true
+
+# VS 2026 가 이 설정을 따름 — 시스템 코드페이지 fallback (한국어 Windows = CP949) 으로 저장 시 BOM 유실되는 사고 방지.
+# 새 MFC 프로젝트의 디폴트와 동일하게 .cpp/.h = UTF-8 BOM, .rc/.rc2 = UTF-16 LE 유지.
+
+[*.{cpp,h,hpp,cc,cxx,c}]
+charset = utf-8-bom
+end_of_line = crlf
+indent_style = tab
+indent_size = 4
+tab_width = 4
+trim_trailing_whitespace = false
+insert_final_newline = true
+
+[*.{rc,rc2}]
+charset = utf-16le
+end_of_line = crlf
+
+[*.md]
+charset = utf-8
+end_of_line = crlf
+indent_style = tab
+indent_size = 4
