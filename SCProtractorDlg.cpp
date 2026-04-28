@@ -14,10 +14,10 @@ END_MESSAGE_MAP()
 
 namespace
 {
-	const int kHandleRadius	= 7;
-	const int kHandleHitRadius	= 12;
-	const int kArcRadius	= 60;
-	const double kPi	= 3.14159265358979323846;
+	const int handle_radius	= 7;
+	const int handle_hit_radius	= 12;
+	const int arc_radius_default	= 60;
+	const double pi	= 3.14159265358979323846;
 
 	double dist_sq(POINT a, POINT b)
 	{
@@ -42,19 +42,19 @@ double CSCProtractorDlg::calc_angle_degrees() const
 	double dot = (ax * bx + ay * by) / (la * lb);
 	if (dot > 1.0)	dot = 1.0;
 	if (dot < -1.0) dot = -1.0;
-	return acos(dot) * 180.0 / kPi;
+	return acos(dot) * 180.0 / pi;
 }
 
 CSCProtractorDlg::HitTarget CSCProtractorDlg::hit_test(CPoint pt) const
 {
-	const double r2 = double(kHandleHitRadius) * kHandleHitRadius;
+	const double r2 = double(handle_hit_radius) * handle_hit_radius;
 	if (dist_sq(pt, m_vertex) <= r2)
-		return kHitVertex;
+		return ht_vertex;
 	if (dist_sq(pt, m_arm_a) <= r2)
-		return kHitArmA;
+		return ht_arm_a;
 	if (dist_sq(pt, m_arm_b) <= r2)
-		return kHitArmB;
-	return kHitNone;
+		return ht_arm_b;
+	return ht_none;
 }
 
 void CSCProtractorDlg::move_vertex_to(CPoint new_vertex)
@@ -69,26 +69,26 @@ void CSCProtractorDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 {
 	switch (m_phase)
 	{
-	case Phase::kPlaceArmA:
+	case Phase::phase_place_arm_a:
 		m_vertex = point;
 		m_arm_a	= point;
 		m_arm_b	= point;
 		Invalidate(FALSE);
 		return;
 
-	case Phase::kPlaceArmB:
+	case Phase::phase_place_arm_b:
 		m_arm_b = point;
-		m_phase = Phase::kEdit;
+		m_phase = Phase::phase_edit;
 		Invalidate(FALSE);
 		return;
 
-	case Phase::kEdit:
+	case Phase::phase_edit:
 	{
 		HitTarget t = hit_test(point);
-		if (t != kHitNone)
+		if (t != ht_none)
 		{
 			m_drag_target = t;
-			if (t == kHitVertex)
+			if (t == ht_vertex)
 				m_drag_grab_offset = m_vertex - point;
 		}
 		return;
@@ -100,7 +100,7 @@ void CSCProtractorDlg::on_mouse_move(UINT nFlags, CPoint point)
 {
 	switch (m_phase)
 	{
-	case Phase::kPlaceArmA:
+	case Phase::phase_place_arm_a:
 		if (nFlags & MK_LBUTTON)
 		{
 			m_arm_a = point;
@@ -108,23 +108,23 @@ void CSCProtractorDlg::on_mouse_move(UINT nFlags, CPoint point)
 		}
 		return;
 
-	case Phase::kPlaceArmB:
+	case Phase::phase_place_arm_b:
 		m_arm_b = point;
 		Invalidate(FALSE);
 		return;
 
-	case Phase::kEdit:
-		if (m_drag_target == kHitVertex)
+	case Phase::phase_edit:
+		if (m_drag_target == ht_vertex)
 		{
 			move_vertex_to(point + m_drag_grab_offset);
 			Invalidate(FALSE);
 		}
-		else if (m_drag_target == kHitArmA)
+		else if (m_drag_target == ht_arm_a)
 		{
 			m_arm_a = point;
 			Invalidate(FALSE);
 		}
-		else if (m_drag_target == kHitArmB)
+		else if (m_drag_target == ht_arm_b)
 		{
 			m_arm_b = point;
 			Invalidate(FALSE);
@@ -137,20 +137,20 @@ void CSCProtractorDlg::on_mouse_up(UINT /*nFlags*/, CPoint point)
 {
 	switch (m_phase)
 	{
-	case Phase::kPlaceArmA:
+	case Phase::phase_place_arm_a:
 		if (dist_sq(point, m_vertex) < 4.0)
 			return;
 		m_arm_a = point;
-		m_phase = Phase::kPlaceArmB;
+		m_phase = Phase::phase_place_arm_b;
 		m_arm_b = m_vertex;
 		Invalidate(FALSE);
 		return;
 
-	case Phase::kPlaceArmB:
+	case Phase::phase_place_arm_b:
 		return;
 
-	case Phase::kEdit:
-		m_drag_target = kHitNone;
+	case Phase::phase_edit:
+		m_drag_target = ht_none;
 		return;
 	}
 }
@@ -167,20 +167,20 @@ bool CSCProtractorDlg::on_key_down(UINT nChar)
 
 HCURSOR CSCProtractorDlg::query_cursor(CPoint pt)
 {
-	if (m_phase != Phase::kEdit)
+	if (m_phase != Phase::phase_edit)
 		return NULL;	//기본 십자 커서
 
 	HitTarget t = hit_test(pt);
-	if (t == kHitVertex)
+	if (t == ht_vertex)
 		return ::LoadCursor(NULL, IDC_SIZEALL);
-	if (t == kHitArmA || t == kHitArmB)
+	if (t == ht_arm_a || t == ht_arm_b)
 		return ::LoadCursor(NULL, IDC_HAND);
 	return ::LoadCursor(NULL, IDC_ARROW);
 }
 
 void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 {
-	if (m_phase == Phase::kPlaceArmA && m_vertex == m_arm_a)
+	if (m_phase == Phase::phase_place_arm_a && m_vertex == m_arm_a)
 	{
 		//아직 첫 클릭 전 — 안내 문구만.
 		ComPtr<IDWriteFactory> dwrite;
@@ -235,10 +235,10 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 
 	d2dc->DrawLine(p_v, p_a, br_arm.Get(), 2.0f);
 
-	if (m_phase != Phase::kPlaceArmA)
+	if (m_phase != Phase::phase_place_arm_a)
 		d2dc->DrawLine(p_v, p_b, br_arm.Get(), 2.0f);
 
-	if (m_phase != Phase::kPlaceArmA)
+	if (m_phase != Phase::phase_place_arm_a)
 	{
 		double ax = double(m_arm_a.x - m_vertex.x);
 		double ay = double(m_arm_a.y - m_vertex.y);
@@ -252,7 +252,7 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			double angle_a = atan2(ay, ax);
 			double angle_b = atan2(by, bx);
 
-			double arc_radius = double(kArcRadius);
+			double arc_radius = double(arc_radius_default);
 			double max_radius = (la < lb ? la : lb) * 0.6;
 			if (arc_radius > max_radius)
 				arc_radius = max_radius;
@@ -260,12 +260,12 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 				arc_radius = 16.0;
 
 			double sweep = angle_b - angle_a;
-			while (sweep <	0.0)	sweep += 2.0 * kPi;
-			while (sweep >= 2.0 * kPi)	sweep -= 2.0 * kPi;
+			while (sweep <	0.0)	sweep += 2.0 * pi;
+			while (sweep >= 2.0 * pi)	sweep -= 2.0 * pi;
 			bool clockwise = true;
-			if (sweep > kPi)
+			if (sweep > pi)
 			{
-				sweep = 2.0 * kPi - sweep;
+				sweep = 2.0 * pi - sweep;
 				clockwise = false;
 			}
 
@@ -352,14 +352,14 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 
 	auto draw_handle = [&](D2D1_POINT_2F p)
 	{
-		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(kHandleRadius),	float(kHandleRadius));
-		D2D1_ELLIPSE e_inner = D2D1::Ellipse(p, float(kHandleRadius - 2), float(kHandleRadius - 2));
+		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(handle_radius),	float(handle_radius));
+		D2D1_ELLIPSE e_inner = D2D1::Ellipse(p, float(handle_radius - 2), float(handle_radius - 2));
 		d2dc->FillEllipse(e_outer, br_handle_stroke.Get());
 		d2dc->FillEllipse(e_inner, br_handle_fill.Get());
 	};
 
 	draw_handle(p_v);
 	draw_handle(p_a);
-	if (m_phase == Phase::kEdit)
+	if (m_phase == Phase::phase_edit)
 		draw_handle(p_b);
 }

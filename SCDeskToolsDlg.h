@@ -35,7 +35,7 @@ protected:
 	Gdiplus::Color	m_cr_selected = Gdiplus::Color::Transparent;	//피커가 보낸 최근 색상.
 
 	//메인 창에 노출할 즐겨찾기 툴 ID 목록. 향후 설정창에서 편집 → 레지스트리 저장 예정.
-	//지금은 OnInitDialog 에서 kDefaultFavorites 로 초기화.
+	//지금은 OnInitDialog 에서 default_favorites 로 초기화.
 	std::vector<UINT>							m_favorites;
 	std::vector<std::unique_ptr<CButton>>		m_buttons_favorite;	//m_favorites 와 1:1 매핑, 동적 생성.
 
@@ -43,8 +43,15 @@ protected:
 	//트레이 종료 절차를 거치기 번거로울 때 도로 노출하면 한 번 클릭으로 종료 가능.
 	CButton			m_button_exit;
 
+	//캡처 시 floating note 를 띄우지 않고 클립보드에만 저장.
+	//상태는 레지스트리(settings\capture_clipboard_only) 에 저장 → 재시작 후에도 복원.
+	CButton			m_check_clipboard_only;
+	bool			m_clipboard_only = false;
+	enum : UINT { id_check_clipboard_only = 2001 };
+
 	void			build_buttons();
 	void			build_exit_button();
+	void			build_clipboard_only_checkbox();
 	void			register_global_hotkeys();
 	void			unregister_global_hotkeys();
 	//모니터별 캡처 단축키는 동적 — 시작 시 + WM_DISPLAYCHANGE 시 재등록.
@@ -106,7 +113,7 @@ protected:
 	//SetClipboardViewer 체인 방식과 달리 체인 끊김 없음.
 	afx_msg LRESULT OnClipboardUpdate(WPARAM wParam, LPARAM lParam);
 
-	//글로벌 단축키 (RegisterHotKey 으로 등록). wParam = kHotkeys 의 id.
+	//글로벌 단축키 (RegisterHotKey 으로 등록). wParam = hotkeys 의 id.
 	afx_msg LRESULT on_hotkey(WPARAM wParam, LPARAM lParam);
 
 	//WM_DISPLAYCHANGE — 모니터 구성 변경 시 g_monitors 갱신 + 모니터 단축키 재등록.
@@ -117,4 +124,5 @@ public:
 	afx_msg void OnBnClickedOk();
 	afx_msg void OnBnClickedCancel();
 	afx_msg void OnWindowPosChanged(WINDOWPOS* lpwndpos);
+	afx_msg void OnBnClickedClipboardOnly();
 };

@@ -2,8 +2,8 @@
 // 화면 줄자. 두 점 사이의 길이(px) 와 각도를 측정.
 //
 // 사용 흐름 (Phase state machine):
-//   1) PlaceEnd — LButtonDown 으로 start 설정 → drag → LButtonUp 으로 end 확정
-//   2) Edit     — start / end / 라인 자체 (라인 위 = 평행이동) 모두 드래그 가능
+//   1) phase_place_end — LButtonDown 으로 start 설정 → drag → LButtonUp 으로 end 확정
+//   2) phase_edit      — start / end / 라인 자체 (라인 위 = 평행이동) 모두 드래그 가능
 // Shift = 0/45/90° 로 각도 제약 (방향 잠금).
 // ESC / 우클릭 = 종료.
 
@@ -28,25 +28,25 @@ protected:
 private:
 	enum class Phase
 	{
-		kPlaceEnd,	//start 누르고 drag 중
-		kEdit,
+		phase_place_end,	//start 누르고 drag 중
+		phase_edit,
 	};
 
 	enum HitTarget
 	{
-		kHitNone,
-		kHitStart,
-		kHitEnd,
-		kHitLine,	//라인 위 (편집 모드에서 전체 평행이동)
+		ht_none,
+		ht_start,
+		ht_end,
+		ht_line,	//라인 위 (편집 모드에서 전체 평행이동)
 	};
 
-	Phase		m_phase = Phase::kPlaceEnd;
-	bool		m_placed = false;	//PlaceEnd → Edit 로 한 번이라도 진입했는지
+	Phase		m_phase = Phase::phase_place_end;
+	bool		m_placed = false;	//phase_place_end → phase_edit 로 한 번이라도 진입했는지
 
 	CPoint		m_start = {};
 	CPoint		m_end	= {};
 
-	HitTarget	m_drag_target = kHitNone;
+	HitTarget	m_drag_target = ht_none;
 	CPoint		m_drag_grab_offset = {};	//평행이동 시 마우스와 잡은 점의 차이
 
 	HitTarget	hit_test(CPoint pt) const;

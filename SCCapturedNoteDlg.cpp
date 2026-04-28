@@ -17,7 +17,7 @@ BEGIN_MESSAGE_MAP(CSCCapturedNoteDlg, CDialog)
 	ON_WM_NCACTIVATE()
 	ON_WM_NCMOUSEMOVE()
 	ON_REGISTERED_MESSAGE(Message_CGdiButton, &CSCCapturedNoteDlg::on_message_CGdiButton)
-	ON_BN_CLICKED(kIdBtnClose, &CSCCapturedNoteDlg::OnBnClickedCloseButton)
+	ON_BN_CLICKED(id_button_close, &CSCCapturedNoteDlg::OnBnClickedCloseButton)
 	ON_WM_MOUSEMOVE()
 END_MESSAGE_MAP()
 
@@ -142,6 +142,10 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	m_img_dlg.create(this, 0, 0, rc_client.Width(), rc_client.Height());
 	m_img_dlg.set_image(&m_image);
 
+	//WS_CLIPSIBLINGS 없으면 m_img_dlg 가 D2D frame 그릴 때 형제인 m_button_close 영역까지
+	//덮어 그려 버튼이 가려진다 (버튼을 클릭하거나 mouse-enter 시점에만 자체 invalidate 로 다시 보임).
+	m_img_dlg.ModifyStyle(0, WS_CLIPSIBLINGS);
+
 	//post-paint 콜백 ? m_img_dlg 의 D2D 같은 frame 에 추가 오버레이 그림 (안티앨리어싱, z-order 충돌 없음).
 	//본문은 멤버 함수로 분리. 람다는 this 캡처하여 멤버 호출만 위임.
 	m_img_dlg.set_post_paint_callback(
@@ -151,11 +155,14 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 
 	//BS_OWNERDRAW 는 CGdiButton 이 PreSubclassWindow 에서 자체 추가. 외부 명시 불필요.
 	//(CGdiButton::create / PreSubclassWindow 가 외부 BS_OWNERDRAW 를 자동 정규화하지만 안 주는 게 정석.)
-	m_button_close.create(_T(""), WS_CHILD, CRect(0, 0, 21, 21), this, kIdBtnClose);
+	m_button_close.create(_T(""), WS_CHILD, CRect(0, 0, 21, 21), this, id_button_close);
 	m_button_close.ShowWindow(SW_SHOW);
+	//z-order 최상단으로 — 형제 m_img_dlg 위에 항상 그려지도록 강제.
+	m_button_close.SetWindowPos(&CWnd::wndTop, 0, 0, 0, 0,
+		SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
 	//닫기 버튼 생성 및 설정.
-	CSize sz_button(15, 15);
+	CSize sz_button(19, 19);
 	CSCGdiplusBitmap close_btn_bmp(sz_button.cx, sz_button.cy, Gdiplus::Color(255, 232, 17, 35));
 	{
 		Gdiplus::Graphics g(close_btn_bmp);
@@ -194,7 +201,7 @@ LRESULT CSCCapturedNoteDlg::OnNcHitTest(CPoint point)
 	GetWindowRect(rc);
 
 	//(1) 가장자리 8px → 8방향 resize 핸들.
-	const int E = static_cast<int>(kEdgeResize);
+	const int E = static_cast<int>(edge_resize);
 	const bool L = (point.x <	rc.left	+ E);
 	const bool R = (point.x >= rc.right - E);
 	const bool T = (point.y <	rc.top	+ E);
@@ -263,13 +270,13 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 
 	CMenu menu;
 	menu.CreatePopupMenu();
-	menu.AppendMenu(MF_STRING, kCmdCopy,	_T("클립보드로 복사(&C)\tCtrl+C"));
-	menu.AppendMenu(MF_STRING, kCmdSave,	_T("이미지 저장(&S)...\tCtrl+S"));
+	menu.AppendMenu(MF_STRING, cmd_copy,	_T("클립보드로 복사(&C)\tCtrl+C"));
+	menu.AppendMenu(MF_STRING, cmd_save,	_T("이미지 저장(&S)...\tCtrl+S"));
 	menu.AppendMenu(MF_SEPARATOR);
-	menu.AppendMenu(flag_100,	kCmdZoom100, _T("100% 크기\tCtrl+W"));
-	menu.AppendMenu(flag_fit,	kCmdZoomFit, _T("창에 맞춤(&F)\tCtrl+F"));
+	menu.AppendMenu(flag_100,	cmd_zoom_100, _T("100% 크기\tCtrl+W"));
+	menu.AppendMenu(flag_fit,	cmd_zoom_fit, _T("창에 맞춤(&F)\tCtrl+F"));
 	menu.AppendMenu(MF_SEPARATOR);
-	menu.AppendMenu(MF_STRING, kCmdClose,	_T("닫기(&X)\tEsc"));
+	menu.AppendMenu(MF_STRING, cmd_close,	_T("닫기(&X)\tEsc"));
 
 	SetForegroundWindow();
 	int cmd = menu.TrackPopupMenu(
@@ -285,10 +292,10 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 {
 	switch (cmd)
 	{
-		case kCmdCopy:
+		case cmd_copy:
 			m_img_dlg.copy_to_clipboard();
 			break;
-		case kCmdZoom100:
+		case cmd_zoom_100:
 		{
 			//100% = 이미지 픽셀 1:1 + 창 크기를 이미지 크기에 맞춰 자동 조정 (화면 80% 안 비율 유지).
 			m_img_dlg.fit2ctrl(false);
@@ -327,15 +334,15 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 				SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 			break;
 		}
-		case kCmdZoomFit:
+		case cmd_zoom_fit:
 			//창에 맞춤 = fit2ctrl(true). zoom() 과 별개의 모드 (m_fit2ctrl flag).
 			m_img_dlg.fit2ctrl(true);
 			break;
-		case kCmdClose:
+		case cmd_close:
 			DestroyWindow();
 			break;
 
-		case kCmdSave:
+		case cmd_save:
 		{
 			//파일 대화상자의 filter 드롭다운에서 포맷 선택. 새 포맷 추가는 filter 문자열만 확장하면 됨.
 			LPCTSTR filter =
@@ -459,10 +466,10 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 				int cmd = 0;
 				switch (pMsg->wParam)
 				{
-				case 'C': cmd = kCmdCopy;	break;
-				case 'S': cmd = kCmdSave;	break;
-				case 'W': cmd = kCmdZoom100; break;
-				case 'F': cmd = kCmdZoomFit; break;
+				case 'C': cmd = cmd_copy;	break;
+				case 'S': cmd = cmd_save;	break;
+				case 'W': cmd = cmd_zoom_100; break;
+				case 'F': cmd = cmd_zoom_fit; break;
 				}
 				if (cmd)
 				{

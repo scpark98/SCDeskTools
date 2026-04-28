@@ -14,10 +14,10 @@ END_MESSAGE_MAP()
 
 namespace
 {
-	const int kHandleRadius	= 7;
-	const int kHandleHitRadius	= 12;
-	const int kLineHitDist	= 6;
-	const double kPi	= 3.14159265358979323846;
+	const int handle_radius	= 7;
+	const int handle_hit_radius	= 12;
+	const int line_hit_dist	= 6;
+	const double pi	= 3.14159265358979323846;
 
 	double dist_sq(POINT a, POINT b)
 	{
@@ -46,21 +46,21 @@ namespace
 
 CSCRulerDlg::HitTarget CSCRulerDlg::hit_test(CPoint pt) const
 {
-	const double r2 = double(kHandleHitRadius) * kHandleHitRadius;
+	const double r2 = double(handle_hit_radius) * handle_hit_radius;
 	if (dist_sq(pt, m_start) <= r2)
-		return kHitStart;
+		return ht_start;
 	if (dist_sq(pt, m_end) <= r2)
-		return kHitEnd;
+		return ht_end;
 	if (on_line(pt))
-		return kHitLine;
-	return kHitNone;
+		return ht_line;
+	return ht_none;
 }
 
 bool CSCRulerDlg::on_line(CPoint pt) const
 {
 	double t = 0.0;
 	double d = perpendicular_dist(m_start, m_end, pt, t);
-	return (t > 0.05 && t < 0.95 && d <= double(kLineHitDist));
+	return (t > 0.05 && t < 0.95 && d <= double(line_hit_dist));
 }
 
 CPoint CSCRulerDlg::apply_constrain(CPoint anchor, CPoint target) const
@@ -73,7 +73,7 @@ CPoint CSCRulerDlg::apply_constrain(CPoint anchor, CPoint target) const
 
 	double angle = atan2(dy, dx);
 	//5° 단위 스냅. 디자인 도구의 45° 보다 fine — 기울기 측정 시 의도한 각도를 잡기 쉽다.
-	const double step = kPi / 36.0;	//180° / 36 = 5°
+	const double step = pi / 36.0;	//180° / 36 = 5°
 	double snapped = floor((angle + step * 0.5) / step) * step;
 
 	return CPoint(
@@ -83,7 +83,7 @@ CPoint CSCRulerDlg::apply_constrain(CPoint anchor, CPoint target) const
 
 void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 {
-	if (m_phase == Phase::kPlaceEnd && !m_placed)
+	if (m_phase == Phase::phase_place_end && !m_placed)
 	{
 		//최초: start 잡고 drag 시작.
 		m_start = point;
@@ -94,10 +94,10 @@ void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 
 	//편집 모드.
 	HitTarget t = hit_test(point);
-	if (t == kHitNone)
+	if (t == ht_none)
 	{
 		//라인이 이미 그려진 후, 라인 외부 클릭 → 새로 그리기 시작.
-		m_phase = Phase::kPlaceEnd;
+		m_phase = Phase::phase_place_end;
 		m_placed = false;
 		m_start = point;
 		m_end	= point;
@@ -106,7 +106,7 @@ void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 	}
 
 	m_drag_target = t;
-	if (t == kHitLine)
+	if (t == ht_line)
 	{
 		//라인 평행이동: 라인 중심점을 잡은 것처럼 처리. start 와 마우스의 차이를 기억.
 		m_drag_grab_offset = m_start - point;
@@ -117,26 +117,26 @@ void CSCRulerDlg::on_mouse_move(UINT nFlags, CPoint point)
 {
 	const bool shift = (nFlags & MK_SHIFT) != 0;
 
-	if (m_phase == Phase::kPlaceEnd && (nFlags & MK_LBUTTON))
+	if (m_phase == Phase::phase_place_end && (nFlags & MK_LBUTTON))
 	{
 		m_end = shift ? apply_constrain(m_start, point) : point;
 		Invalidate(FALSE);
 		return;
 	}
 
-	if (m_phase == Phase::kEdit)
+	if (m_phase == Phase::phase_edit)
 	{
-		if (m_drag_target == kHitStart)
+		if (m_drag_target == ht_start)
 		{
 			m_start = shift ? apply_constrain(m_end, point) : point;
 			Invalidate(FALSE);
 		}
-		else if (m_drag_target == kHitEnd)
+		else if (m_drag_target == ht_end)
 		{
 			m_end = shift ? apply_constrain(m_start, point) : point;
 			Invalidate(FALSE);
 		}
-		else if (m_drag_target == kHitLine)
+		else if (m_drag_target == ht_line)
 		{
 			//라인 전체 평행이동. delta = 새 start - 현재 start.
 			CPoint new_start = point + m_drag_grab_offset;
@@ -150,35 +150,35 @@ void CSCRulerDlg::on_mouse_move(UINT nFlags, CPoint point)
 
 void CSCRulerDlg::on_mouse_up(UINT /*nFlags*/, CPoint point)
 {
-	if (m_phase == Phase::kPlaceEnd)
+	if (m_phase == Phase::phase_place_end)
 	{
 		if (dist_sq(point, m_start) < 4.0)
 			return;	//클릭만 한 셈 — 그대로 두고 다시 drag 대기
-		m_phase = Phase::kEdit;
+		m_phase = Phase::phase_edit;
 		m_placed = true;
 		Invalidate(FALSE);
 		return;
 	}
 
-	m_drag_target = kHitNone;
+	m_drag_target = ht_none;
 }
 
 HCURSOR CSCRulerDlg::query_cursor(CPoint pt)
 {
-	if (m_phase != Phase::kEdit)
+	if (m_phase != Phase::phase_edit)
 		return NULL;
 
 	HitTarget t = hit_test(pt);
-	if (t == kHitStart || t == kHitEnd)
+	if (t == ht_start || t == ht_end)
 		return ::LoadCursor(NULL, IDC_HAND);
-	if (t == kHitLine)
+	if (t == ht_line)
 		return ::LoadCursor(NULL, IDC_SIZEALL);
 	return NULL;
 }
 
 void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 {
-	if (m_phase == Phase::kPlaceEnd && !m_placed && m_start == m_end)
+	if (m_phase == Phase::phase_place_end && !m_placed && m_start == m_end)
 	{
 		//아직 첫 클릭 전 — 안내 문구.
 		ComPtr<IDWriteFactory> dwrite;
@@ -283,7 +283,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
 			//각도는 화면 좌표계 (y 아래) 기준 atan2 → 일반 수학 좌표 (y 위) 로 부호 뒤집어 표시.
-			double angle_deg = -atan2(dy, dx) * 180.0 / kPi;
+			double angle_deg = -atan2(dy, dx) * 180.0 / pi;
 
 			WCHAR text[64];
 			swprintf_s(text, L"%.1f px   %.1f°", length, angle_deg);
@@ -338,8 +338,8 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	//endpoint handles.
 	auto draw_handle = [&](D2D1_POINT_2F p)
 	{
-		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(kHandleRadius),	float(kHandleRadius));
-		D2D1_ELLIPSE e_inner = D2D1::Ellipse(p, float(kHandleRadius - 2), float(kHandleRadius - 2));
+		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(handle_radius),	float(handle_radius));
+		D2D1_ELLIPSE e_inner = D2D1::Ellipse(p, float(handle_radius - 2), float(handle_radius - 2));
 		d2dc->FillEllipse(e_outer, br_handle_stroke.Get());
 		d2dc->FillEllipse(e_inner, br_handle_fill.Get());
 	};

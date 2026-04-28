@@ -2,10 +2,10 @@
 // 영역 캡처 오버레이.
 //
 // 흐름 (2-phase):
-//   1) kDragging — 좌클릭 드래그로 영역 정의. 떼는 순간:
+//   1) phase_dragging — 좌클릭 드래그로 영역 정의. 떼는 순간:
 //      - Shift 미보유 → 즉시 캡처.
-//      - Shift 보유   → kEdit 진입 (정밀 보정).
-//   2) kEdit     — 8 핸들 (코너 4 + 변 4) 로 resize, ROI 내부 드래그로 이동, 방향키 nudge.
+//      - Shift 보유   → phase_edit 진입 (정밀 보정).
+//   2) phase_edit     — 8 핸들 (코너 4 + 변 4) 로 resize, ROI 내부 드래그로 이동, 방향키 nudge.
 //                  Enter / 더블클릭 = 캡처 확정. ESC / 우클릭 = 취소.
 //
 // 드래그 중과 Edit 중 모두 사이즈 라벨 + modifier hint 노출.
@@ -37,26 +37,26 @@ protected:
 private:
 	enum class Phase
 	{
-		kDragging,
-		kEdit,
+		phase_dragging,
+		phase_edit,
 	};
 
 	enum HitTarget
 	{
-		kHitNone,
-		kHitTopLeft,	kHitTop,	kHitTopRight,
-		kHitLeft,		kHitInterior,	kHitRight,
-		kHitBottomLeft,	kHitBottom,	kHitBottomRight,
+		ht_none,
+		ht_top_left,	ht_top,			ht_top_right,
+		ht_left,		ht_interior,	ht_right,
+		ht_bottom_left,	ht_bottom,		ht_bottom_right,
 	};
 
-	Phase		m_phase = Phase::kDragging;
+	Phase		m_phase = Phase::phase_dragging;
 
 	bool		m_dragging = false;
 	CPoint		m_drag_anchor_client = {};
 	CPoint		m_drag_cursor_client = {};
 
 	CRect		m_edit_rect = {};
-	HitTarget	m_edit_grab = kHitNone;
+	HitTarget	m_edit_grab = ht_none;
 	CPoint		m_edit_grab_offset = {};
 
 	bool		m_picked = false;

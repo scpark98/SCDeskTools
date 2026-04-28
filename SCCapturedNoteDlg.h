@@ -45,13 +45,13 @@ public:
 private:
 	enum
 	{
-		kEdgeResize = 8,	//창 가장자리 N px = resize 영역
-		kCmdCopy = 1,
-		kCmdZoom100 = 2,
-		kCmdZoomFit = 3,
-		kCmdClose = 4,
-		kCmdSave = 5,
-		kIdBtnClose = 1001,	//우상단 닫기 버튼 (CGdiButton) 컨트롤 ID
+		edge_resize = 8,	//창 가장자리 N px = resize 영역
+		cmd_copy = 1,
+		cmd_zoom_100 = 2,
+		cmd_zoom_fit = 3,
+		cmd_close = 4,
+		cmd_save = 5,
+		id_button_close = 1001,	//우상단 닫기 버튼 (CGdiButton) 컨트롤 ID
 	};
 
 	CSCD2Context	m_d2;
