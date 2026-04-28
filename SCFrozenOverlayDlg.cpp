@@ -2,6 +2,7 @@
 
 #include "pch.h"
 #include "SCFrozenOverlayDlg.h"
+#include "Common/cursor_helpers.h"
 
 IMPLEMENT_DYNAMIC(CSCFrozenOverlayDlg, CDialog)
 
@@ -37,7 +38,7 @@ bool CSCFrozenOverlayDlg::create(CWnd* parent)
 	m_virtual_screen.bottom = m_virtual_screen.top	+ ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
 	//CS_DBLCLKS — 파생(영역 캡처)이 더블클릭으로 확정 액션을 받기 위해 필요. 없으면 WM_LBUTTONDBLCLK 미발송.
-	LPCTSTR wnd_class = ::AfxRegisterWndClass(CS_DBLCLKS, ::LoadCursor(NULL, IDC_CROSS));
+	LPCTSTR wnd_class = ::AfxRegisterWndClass(CS_DBLCLKS, get_thin_cross_cursor());
 
 	BOOL ok = CreateEx(
 		WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -191,7 +192,7 @@ void CSCFrozenOverlayDlg::OnMouseMove(UINT nFlags, CPoint point)
 	//WM_MOUSEMOVE 는 캡처 중에도 정상 발송되므로 여기서 매번 SetCursor 강제 → 커서가 항상 의도대로.
 	HCURSOR hc = query_cursor(point);
 	if (!hc)
-		hc = ::LoadCursor(NULL, IDC_CROSS);	//derived 가 query_cursor 를 override 안 했으면 십자
+		hc = get_thin_cross_cursor();	//derived 가 query_cursor 를 override 안 했으면 십자
 	::SetCursor(hc);
 
 	on_mouse_move(nFlags, point);

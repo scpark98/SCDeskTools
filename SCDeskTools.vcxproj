@@ -224,6 +224,7 @@
     <ClInclude Include="SCCaptureOverlayDlg.h" />
     <ClInclude Include="SCCapturedNoteDlg.h" />
     <ClInclude Include="SCRegionCaptureDlg.h" />
+    <ClInclude Include="SCFreehandCaptureDlg.h" />
     <ClInclude Include="SCProtractorDlg.h" />
     <ClInclude Include="SCRulerDlg.h" />
     <ClInclude Include="..\Common\MemoryDC.h" />
@@ -362,6 +363,7 @@
     <ClCompile Include="SCCaptureOverlayDlg.cpp" />
     <ClCompile Include="SCCapturedNoteDlg.cpp" />
     <ClCompile Include="SCRegionCaptureDlg.cpp" />
+    <ClCompile Include="SCFreehandCaptureDlg.cpp" />
     <ClCompile Include="SCProtractorDlg.cpp" />
     <ClCompile Include="SCRulerDlg.cpp" />
     <ClCompile Include="SCDeskTools.cpp" />

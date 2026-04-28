@@ -108,6 +108,9 @@
     <ClInclude Include="SCRegionCaptureDlg.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="SCFreehandCaptureDlg.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="SCProtractorDlg.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
@@ -192,6 +195,9 @@
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="SCRegionCaptureDlg.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="SCFreehandCaptureDlg.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="SCProtractorDlg.cpp">

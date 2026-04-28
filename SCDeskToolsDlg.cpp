@@ -15,11 +15,15 @@
 #include "SCCaptureOverlayDlg.h"
 #include "SCCapturedNoteDlg.h"
 #include "SCRegionCaptureDlg.h"
+#include "SCFreehandCaptureDlg.h"
 #include "SCProtractorDlg.h"
 #include "SCRulerDlg.h"
 
 #include <dwmapi.h>
 #pragma comment(lib, "dwmapi.lib")
+
+#include <wincodec.h>
+#pragma comment(lib, "windowscodecs.lib")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -54,6 +58,7 @@ namespace
 		{ ID_TOOL_CAPTURE_FULLSCREEN,	_T("전체 화면 캡처"),			_T("전체 화면 캡처"),			cat_capture },
 		{ ID_TOOL_CAPTURE_WINDOW,		_T("창 캡처"),					_T("창 캡처"),					cat_capture },
 		{ ID_TOOL_CAPTURE_REGION,		_T("영역 캡처"),					_T("영역 캡처"),					cat_capture },
+		{ ID_TOOL_CAPTURE_FREEHAND,		_T("자유선 캡처"),				_T("자유선 캡처"),				cat_capture },
 		{ ID_TOOL_PASTE_CLIPBOARD,		_T("클립보드 이미지 띠우기"),		_T("클립보드 이미지 띠우기"),		cat_capture },
 		//Color
 		{ ID_TOOL_COLOR_PICKER,			_T("컬러 피커"),					_T("컬러 피커"),					cat_color },
@@ -247,6 +252,7 @@ BEGIN_MESSAGE_MAP(CSCDeskToolsDlg, CDialogEx)
 	ON_COMMAND(ID_TOOL_DROPPER, &CSCDeskToolsDlg::OnToolDropper)
 	ON_COMMAND(ID_TOOL_CAPTURE_WINDOW, &CSCDeskToolsDlg::OnToolCaptureWindow)
 	ON_COMMAND(ID_TOOL_CAPTURE_REGION, &CSCDeskToolsDlg::OnToolCaptureRegion)
+	ON_COMMAND(ID_TOOL_CAPTURE_FREEHAND, &CSCDeskToolsDlg::OnToolCaptureFreehand)
 	ON_COMMAND(ID_TOOL_CAPTURE_FULLSCREEN, &CSCDeskToolsDlg::OnToolCaptureFullscreen)
 	ON_COMMAND_RANGE(ID_TOOL_CAPTURE_MONITOR_FIRST, ID_TOOL_CAPTURE_MONITOR_LAST, &CSCDeskToolsDlg::OnToolCaptureMonitor)
 	ON_COMMAND(ID_TOOL_PASTE_CLIPBOARD, &CSCDeskToolsDlg::OnToolPasteClipboard)
@@ -852,57 +858,87 @@ void CSCDeskToolsDlg::OnToolDropper()
 
 	if (!dlg.is_picked())
 		return;
-
-	Gdiplus::Color cr = dlg.get_picked_color();
-	CString s;
-	s.Format(_T("스포이드 결과: #%02X%02X%02X"), cr.GetR(), cr.GetG(), cr.GetB());
-	AfxMessageBox(s);
 }
+
+//본 파일 하단 정의를 앞쪽 사용처에서 참조 가능하게 forward declaration.
+static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h);
 
 void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down, int w, int h, POINT note_pos)
 {
-	//top-down BGRA 픽셀을 받아 (1) CF_DIB (bottom-up) 으로 클립보드 복사, (2) floating note 띠움.
-	//창/영역/전체 화면 캡처가 동일 사용. 호출자는 픽셀 버퍼 소유권 그대로 유지.
+	//top-down BGRA 픽셀을 받아 (1) CF_DIBV5 + CF_DIB 로 클립보드 복사, (2) floating note 띠움.
+	//CF_DIBV5 가 alpha 채널 인식 가능 → PowerPoint 등 modern 앱이 라운드 코너 투명 처리.
+	//CF_DIB 는 legacy fallback (alpha 무시).
 	if (!bgra_top_down || w <= 0 || h <= 0)
 		return;
 
 	const int stride = w * 4;
 	const DWORD pixel_size = static_cast<DWORD>(stride) * h;
-	const DWORD total_size = sizeof(BITMAPINFOHEADER) + pixel_size;
 
-	HGLOBAL hg_dib = ::GlobalAlloc(GHND, total_size);
+	auto fill_bottom_up = [&](BYTE* dst)
+	{
+		for (int y = 0; y < h; ++y)
+			memcpy(dst + (h - 1 - y) * stride, bgra_top_down + y * stride, stride);
+	};
+
+	HGLOBAL hg_v5 = ::GlobalAlloc(GHND, sizeof(BITMAPV5HEADER) + pixel_size);
+	if (hg_v5)
+	{
+		BYTE* mem = static_cast<BYTE*>(::GlobalLock(hg_v5));
+		BITMAPV5HEADER* bv5 = reinterpret_cast<BITMAPV5HEADER*>(mem);
+		bv5->bV5Size		= sizeof(BITMAPV5HEADER);
+		bv5->bV5Width		= w;
+		bv5->bV5Height		= h;
+		bv5->bV5Planes		= 1;
+		bv5->bV5BitCount	= 32;
+		bv5->bV5Compression	= BI_BITFIELDS;
+		bv5->bV5SizeImage	= pixel_size;
+		bv5->bV5RedMask		= 0x00FF0000;
+		bv5->bV5GreenMask	= 0x0000FF00;
+		bv5->bV5BlueMask	= 0x000000FF;
+		bv5->bV5AlphaMask	= 0xFF000000;
+		bv5->bV5CSType		= LCS_WINDOWS_COLOR_SPACE;
+		bv5->bV5Intent		= LCS_GM_GRAPHICS;
+		fill_bottom_up(mem + sizeof(BITMAPV5HEADER));
+		::GlobalUnlock(hg_v5);
+	}
+
+	HGLOBAL hg_dib = ::GlobalAlloc(GHND, sizeof(BITMAPINFOHEADER) + pixel_size);
 	if (hg_dib)
 	{
 		BYTE* mem = static_cast<BYTE*>(::GlobalLock(hg_dib));
 		BITMAPINFOHEADER* bih = reinterpret_cast<BITMAPINFOHEADER*>(mem);
-		bih->biSize	= sizeof(BITMAPINFOHEADER);
-		bih->biWidth	= w;
-		bih->biHeight	= h;	//양수 = bottom-up (CF_DIB 표준)
-		bih->biPlanes	= 1;
-		bih->biBitCount	= 32;
-		bih->biCompression = BI_RGB;
+		bih->biSize			= sizeof(BITMAPINFOHEADER);
+		bih->biWidth		= w;
+		bih->biHeight		= h;
+		bih->biPlanes		= 1;
+		bih->biBitCount		= 32;
+		bih->biCompression	= BI_RGB;
 		bih->biSizeImage	= pixel_size;
-
-		BYTE* dst_pixels = mem + sizeof(BITMAPINFOHEADER);
-		for (int y = 0; y < h; ++y)
-		{
-			memcpy(dst_pixels + (h - 1 - y) * stride,
-				bgra_top_down + y * stride, stride);
-		}
+		fill_bottom_up(mem + sizeof(BITMAPINFOHEADER));
 		::GlobalUnlock(hg_dib);
+	}
 
-		if (::OpenClipboard(m_hWnd))
-		{
-			::EmptyClipboard();
-			HANDLE r = ::SetClipboardData(CF_DIB, hg_dib);
-			::CloseClipboard();
-			if (r == NULL)
-				::GlobalFree(hg_dib);	//실패 시 우리가 해제
-		}
-		else
-		{
-			::GlobalFree(hg_dib);
-		}
+	//"PNG" 등록 포맷 — PowerPoint / Word 등이 alpha 채널 인식하는 가장 신뢰할 만한 경로.
+	HGLOBAL hg_png = encode_bgra_to_png_hglobal(bgra_top_down, w, h);
+	const UINT cf_png = ::RegisterClipboardFormat(_T("PNG"));
+
+	if (::OpenClipboard(m_hWnd))
+	{
+		::EmptyClipboard();
+		//순서: PNG → DIBV5 → DIB. 받는 앱은 자기가 지원하는 첫 포맷을 골라 alpha-aware 우선.
+		HANDLE r_pn = (hg_png && cf_png) ? ::SetClipboardData(cf_png,  hg_png) : NULL;
+		HANDLE r_v5 = hg_v5  ? ::SetClipboardData(CF_DIBV5, hg_v5)  : NULL;
+		HANDLE r_db = hg_dib ? ::SetClipboardData(CF_DIB,   hg_dib) : NULL;
+		::CloseClipboard();
+		if (hg_png && r_pn == NULL) ::GlobalFree(hg_png);
+		if (hg_v5  && r_v5 == NULL) ::GlobalFree(hg_v5);
+		if (hg_dib && r_db == NULL) ::GlobalFree(hg_dib);
+	}
+	else
+	{
+		if (hg_png) ::GlobalFree(hg_png);
+		if (hg_v5)  ::GlobalFree(hg_v5);
+		if (hg_dib) ::GlobalFree(hg_dib);
 	}
 
 	if (!m_clipboard_only)
@@ -927,6 +963,153 @@ CSCDeskToolsDlg::HideFloating::~HideFloating()
 		dlg->ShowWindow(SW_SHOW);
 	if (picker_was_visible)
 		dlg->m_color_picker.ShowWindow(SW_SHOW);
+}
+
+//BGRA top-down 픽셀을 PNG 로 인코딩해 HGLOBAL 반환. 클립보드 "PNG" 포맷용.
+//PowerPoint / Word 등 modern 앱은 등록 포맷 "PNG" 를 우선해서 alpha 보존.
+//성공 시 호출자가 SetClipboardData 로 ownership 이전 (실패 시 GlobalFree).
+static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h)
+{
+	HGLOBAL hg_out = NULL;
+	IWICImagingFactory* pFactory = NULL;
+	IStream* pStream = NULL;
+	IWICBitmapEncoder* pEncoder = NULL;
+	IWICBitmapFrameEncode* pFrame = NULL;
+
+	HRESULT hr = ::CoCreateInstance(CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER,
+		IID_PPV_ARGS(&pFactory));
+	if (FAILED(hr) || !pFactory)
+		goto cleanup;
+
+	hr = ::CreateStreamOnHGlobal(NULL, TRUE, &pStream);
+	if (FAILED(hr) || !pStream)
+		goto cleanup;
+
+	hr = pFactory->CreateEncoder(GUID_ContainerFormatPng, NULL, &pEncoder);
+	if (FAILED(hr) || !pEncoder)
+		goto cleanup;
+
+	hr = pEncoder->Initialize(pStream, WICBitmapEncoderNoCache);
+	if (FAILED(hr))
+		goto cleanup;
+
+	hr = pEncoder->CreateNewFrame(&pFrame, NULL);
+	if (FAILED(hr) || !pFrame)
+		goto cleanup;
+
+	hr = pFrame->Initialize(NULL);
+	if (FAILED(hr))
+		goto cleanup;
+
+	hr = pFrame->SetSize(w, h);
+	if (FAILED(hr))
+		goto cleanup;
+	{
+		WICPixelFormatGUID pf = GUID_WICPixelFormat32bppBGRA;
+		hr = pFrame->SetPixelFormat(&pf);
+		if (FAILED(hr))
+			goto cleanup;
+	}
+	{
+		const UINT stride = static_cast<UINT>(w) * 4;
+		const UINT cb = stride * static_cast<UINT>(h);
+		hr = pFrame->WritePixels(static_cast<UINT>(h), stride, cb, const_cast<BYTE*>(bgra_top_down));
+		if (FAILED(hr))
+			goto cleanup;
+	}
+	hr = pFrame->Commit();
+	if (FAILED(hr))
+		goto cleanup;
+	hr = pEncoder->Commit();
+	if (FAILED(hr))
+		goto cleanup;
+
+	{
+		STATSTG stat = {};
+		hr = pStream->Stat(&stat, STATFLAG_NONAME);
+		if (FAILED(hr))
+			goto cleanup;
+		const SIZE_T size = static_cast<SIZE_T>(stat.cbSize.QuadPart);
+		hg_out = ::GlobalAlloc(GHND, size);
+		if (!hg_out)
+			goto cleanup;
+
+		LARGE_INTEGER zero = {};
+		pStream->Seek(zero, STREAM_SEEK_SET, NULL);
+		BYTE* mem = static_cast<BYTE*>(::GlobalLock(hg_out));
+		ULONG read = 0;
+		pStream->Read(mem, static_cast<ULONG>(size), &read);
+		::GlobalUnlock(hg_out);
+	}
+
+cleanup:
+	if (pFrame)		pFrame->Release();
+	if (pEncoder)	pEncoder->Release();
+	if (pStream)	pStream->Release();
+	if (pFactory)	pFactory->Release();
+	return hg_out;
+}
+
+//Win11+ 라운드 코너 반경 추정. Win10/older 또는 명시적 DONOTROUND 면 0.
+//WS_CAPTION 체크는 안 함 — DWM 이 popup/tool 창도 라운드시키는 경우가 있어 너무 엄격하면 미스 발생.
+//사용자가 보기에 라운드인 창은 거의 모두 ROUND/DEFAULT 로 잡힘.
+static int probe_window_corner_radius(HWND hwnd)
+{
+	const DWORD kAttrCornerPref = 33;	//DWMWA_WINDOW_CORNER_PREFERENCE (Win11). Win10 에서는 E_INVALIDARG.
+	int pref = 0;
+	if (FAILED(::DwmGetWindowAttribute(hwnd, kAttrCornerPref, &pref, sizeof(pref))))
+		return 0;
+	const int kDoNotRound = 1, kRoundSmall = 3;
+	if (pref == kDoNotRound)
+		return 0;
+	if (pref == kRoundSmall)
+		return 4;
+	return 8;	//ROUND 또는 DEFAULT
+}
+
+//32bpp BGRA top-down 픽셀의 4모서리에 라운드 마스크 적용 (in-place, antialiased).
+//- coverage = (radius + 0.5) - dist : 호 안쪽=1, 바깥=0, 호 위 1px 폭에서 부분값
+//- cov >= 1 (호 안쪽)             : 원본 그대로
+//- cov <= 0 (호 바깥)             : (0,0,0,0) — alpha 무시 뷰어에서도 마스킹 시각 확인 가능
+//- 0 < cov < 1 (edge band)         : straight alpha 로 RGB 유지 + alpha *= cov
+//                                    (PNG 디코더가 straight 로 해석해 부드러운 AA 합성)
+static void apply_rounded_corner_alpha(BYTE* px, int w, int h, int radius)
+{
+	if (!px || radius <= 0 || w <= 2 * radius || h <= 2 * radius)
+		return;
+	const float r = float(radius);
+	auto process = [&](int x0, int y0, int cx, int cy)
+	{
+		for (int y = y0; y < y0 + radius; ++y)
+		{
+			const float dy = float(y) + 0.5f - float(cy);
+			BYTE* row = px + size_t(y) * size_t(w) * 4;
+			for (int x = x0; x < x0 + radius; ++x)
+			{
+				const float dx = float(x) + 0.5f - float(cx);
+				const float dist = sqrtf(dx * dx + dy * dy);
+				const float cov = r + 0.5f - dist;
+				BYTE* p = row + x * 4;
+				if (cov >= 1.0f)
+					continue;
+				if (cov <= 0.0f)
+				{
+					p[0] = 0;
+					p[1] = 0;
+					p[2] = 0;
+					p[3] = 0;
+				}
+				else
+				{
+					p[3] = static_cast<BYTE>(float(p[3]) * cov + 0.5f);
+				}
+			}
+		}
+	};
+	process(0,            0,            radius,     radius);		//TL
+	process(w - radius,   0,            w - radius, radius);		//TR
+	process(0,            h - radius,   radius,     h - radius);	//BL
+	process(w - radius,   h - radius,   w - radius, h - radius);	//BR
 }
 
 void CSCDeskToolsDlg::capture_screen_rect(const CRect& rc_screen)
@@ -1183,6 +1366,18 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 	const int w_clip = pw_ok ? pw_w : rc_highlight.Width();
 	const int h_clip = pw_ok ? pw_h : rc_highlight.Height();
 
+	//Win11 라운드 코너 마스킹: 4 모서리 호 바깥 alpha=0. PNG 저장/D2D 노트 표시 시 투명.
+	if (hbmp_for_clip)
+	{
+		const int radius = probe_window_corner_radius(hwnd);
+		if (radius > 0)
+		{
+			DIBSECTION ds = {};
+			if (::GetObject(hbmp_for_clip, sizeof(ds), &ds) == sizeof(ds) && ds.dsBm.bmBits)
+				apply_rounded_corner_alpha(static_cast<BYTE*>(ds.dsBm.bmBits), w_clip, h_clip, radius);
+		}
+	}
+
 	if (hbmp_for_clip && w_clip > 0 && h_clip > 0)
 	{
 		DIBSECTION ds = {};
@@ -1262,6 +1457,106 @@ void CSCDeskToolsDlg::OnToolCaptureRegion()
 	if (hbmp_dst && dst_bits)
 	{
 		POINT pos = { rc_sel.left, rc_sel.top };
+		send_image_to_clipboard_and_note(static_cast<const BYTE*>(dst_bits), dst_w, dst_h, pos);
+	}
+
+	if (hbmp_dst)
+		::DeleteObject(hbmp_dst);
+}
+
+void CSCDeskToolsDlg::OnToolCaptureFreehand()
+{
+	HideFloating hide(this);
+	Wait(200);
+
+	CSCFreehandCaptureDlg dlg;
+	if (!dlg.create(this))
+	{
+		AfxMessageBox(_T("자유선 캡처 오버레이 생성 실패"));
+		return;
+	}
+
+	dlg.run_modal_loop(this);
+
+	if (!dlg.is_picked())
+		return;
+
+	const std::vector<CPoint>& path_screen = dlg.get_picked_path_screen();
+	const CRect rc_bounds  = dlg.get_picked_bounds_screen();
+	const CRect rc_virtual = dlg.get_virtual_screen_rect();
+	HBITMAP hbmp_src = dlg.get_frozen_hbitmap();
+
+	const int dst_w = rc_bounds.Width();
+	const int dst_h = rc_bounds.Height();
+	if (!hbmp_src || dst_w <= 0 || dst_h <= 0 || path_screen.size() < 3)
+		return;
+
+	//1) 프리즈 DIB 의 bounding box 영역을 새 32bpp top-down DIB section 으로 BitBlt.
+	HDC hdc_screen = ::GetDC(NULL);
+	HDC hdc_src	= ::CreateCompatibleDC(hdc_screen);
+	HDC hdc_dst	= ::CreateCompatibleDC(hdc_screen);
+
+	BITMAPINFO bmi = {};
+	bmi.bmiHeader.biSize	= sizeof(bmi.bmiHeader);
+	bmi.bmiHeader.biWidth	= dst_w;
+	bmi.bmiHeader.biHeight	= -dst_h;
+	bmi.bmiHeader.biPlanes	= 1;
+	bmi.bmiHeader.biBitCount	= 32;
+	bmi.bmiHeader.biCompression = BI_RGB;
+
+	void* dst_bits = nullptr;
+	HBITMAP hbmp_dst = ::CreateDIBSection(hdc_dst, &bmi, DIB_RGB_COLORS, &dst_bits, NULL, 0);
+	HGDIOBJ old_src = ::SelectObject(hdc_src, hbmp_src);
+	HGDIOBJ old_dst = ::SelectObject(hdc_dst, hbmp_dst);
+
+	::BitBlt(hdc_dst, 0, 0, dst_w, dst_h,
+		hdc_src,
+		rc_bounds.left - rc_virtual.left,
+		rc_bounds.top  - rc_virtual.top,
+		SRCCOPY);
+
+	::SelectObject(hdc_src, old_src);
+	::SelectObject(hdc_dst, old_dst);
+	::DeleteDC(hdc_src);
+	::DeleteDC(hdc_dst);
+	::ReleaseDC(NULL, hdc_screen);
+
+	//2) 폴리곤 영역 외 픽셀 alpha=0. CreatePolygonRgn + PtInRegion 으로 픽셀 단위 판정.
+	if (hbmp_dst && dst_bits)
+	{
+		std::vector<POINT> pts_local;
+		pts_local.reserve(path_screen.size());
+		for (const CPoint& p : path_screen)
+		{
+			POINT lp = { p.x - rc_bounds.left, p.y - rc_bounds.top };
+			pts_local.push_back(lp);
+		}
+		HRGN hrgn = ::CreatePolygonRgn(pts_local.data(), int(pts_local.size()), WINDING);
+		if (hrgn)
+		{
+			BYTE* px = static_cast<BYTE*>(dst_bits);
+			for (int y = 0; y < dst_h; ++y)
+			{
+				BYTE* row = px + size_t(y) * size_t(dst_w) * 4;
+				for (int x = 0; x < dst_w; ++x)
+				{
+					if (::PtInRegion(hrgn, x, y))
+					{
+						row[x * 4 + 3] = 0xFF;
+					}
+					else
+					{
+						row[x * 4 + 0] = 0;
+						row[x * 4 + 1] = 0;
+						row[x * 4 + 2] = 0;
+						row[x * 4 + 3] = 0;
+					}
+				}
+			}
+			::DeleteObject(hrgn);
+		}
+
+		POINT pos = { rc_bounds.left, rc_bounds.top };
 		send_image_to_clipboard_and_note(static_cast<const BYTE*>(dst_bits), dst_w, dst_h, pos);
 	}
 

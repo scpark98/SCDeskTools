@@ -17,6 +17,7 @@
 #pragma once
 
 #include <afxwin.h>
+#include <vector>
 #include "Common/CButton/GdiButton/GdiButton.h"
 #include "Common/directx/CSCD2Context/SCD2Context.h"
 #include "Common/directx/CSCD2Image/SCD2Image.h"
@@ -51,6 +52,7 @@ private:
 		cmd_zoom_fit = 3,
 		cmd_close = 4,
 		cmd_save = 5,
+		cmd_gradient_edge = 6,
 		id_button_close = 1001,	//우상단 닫기 버튼 (CGdiButton) 컨트롤 ID
 	};
 
@@ -65,6 +67,11 @@ private:
 	int				m_img_h = 0;
 	bool			m_initialized = false;
 	BYTE			m_alpha = 255;	//Ctrl+wheel 로 조정. 64 ~ 255 범위 (완전 투명 방지).
+
+	//원본 BGRA 픽셀 보관본. 반복 가능한 효과 (gradient edge 등) 적용 시 매번 reload.
+	//m_image 의 m_data 와 별개 — m_image 는 D2D 비트맵 캐시이므로 픽셀 수정 후 load() 다시 호출 필요.
+	std::vector<BYTE>	m_bgra_data;
+	bool				m_edge_padded = false;	//gradient edge 첫 호출 시 마진 1회 확장 후 true.
 
 	//마우스 호버 위치의 이미지 픽셀 좌표. (-1, -1) = 이미지 영역 밖이거나 미초기화.
 	//OnNcMouseMove 에서 갱신 (OnNcHitTest 가 client 영역을 HTCAPTION 으로 반환하므로 일반 이동도 NC 경로로 옴).

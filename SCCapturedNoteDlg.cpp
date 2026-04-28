@@ -4,6 +4,161 @@
 #include "SCCapturedNoteDlg.h"
 #include "Common/Functions.h"
 
+//32bpp BGRA top-down 픽셀의 가장자리만 블러로 부드럽게 (in-place).
+//premultiplied 도메인에서 BGRA 전체에 separable box blur → un-premultiply 로 straight alpha 복원.
+//마지막에 원본 alpha=255 픽셀의 RGB 를 복원 → 내부 화질은 보존, 가장자리만 흐려짐.
+//- 깊은 내부 (이웃이 모두 alpha=255) : alpha=255 + 원본 RGB 그대로
+//- 내부 가장자리 부근 : alpha 감소 + 원본 RGB 복원 (부드럽게 fade)
+//- edge 띠 / 외부 가까운 영역 : 블러된 RGB + 블러된 alpha (안쪽 색이 자연스럽게 새어나와 검은 halo 없음)
+//- 반복 호출 시 누적 — edge 띠가 점점 넓고 뿌옇게 확장. 깊은 내부는 흐려지지 않음.
+static void apply_edge_blur(BYTE* px, int w, int h, int radius)
+{
+	if (!px || w <= 0 || h <= 0 || radius <= 0)
+		return;
+
+	const int N = w * h;
+	const size_t SN = (size_t)N;
+
+	//원본 BGRA 보관 — 블러 후 거리 기반 선형 blend 로 원본/블러 RGB 합성.
+	std::vector<BYTE> orig(SN * 4);
+	memcpy(orig.data(), px, SN * 4);
+
+	//각 픽셀에서 가장 가까운 비-완전불투명 픽셀까지의 Manhattan 거리 (2-pass chamfer).
+	//이 거리로 RGB blend 비율 결정 — 깊은 내부 (dist >= threshold) 는 100% 원본,
+	//경계 (dist=1) 는 거의 블러, 비-완전불투명 (dist=0) 는 100% 블러.
+	const int INF = w + h + 8;
+	std::vector<int> dist(SN, 0);
+	for (int i = 0; i < N; ++i)
+		dist[i] = (orig[i * 4 + 3] == 255) ? INF : 0;
+	for (int y = 0; y < h; ++y)
+	{
+		for (int x = 0; x < w; ++x)
+		{
+			const int idx = y * w + x;
+			if (dist[idx] == 0) continue;
+			int v = dist[idx];
+			if (x > 0) v = min(v, dist[idx - 1] + 1);
+			if (y > 0) v = min(v, dist[idx - w] + 1);
+			dist[idx] = v;
+		}
+	}
+	for (int y = h - 1; y >= 0; --y)
+	{
+		for (int x = w - 1; x >= 0; --x)
+		{
+			const int idx = y * w + x;
+			if (dist[idx] == 0) continue;
+			int v = dist[idx];
+			if (x < w - 1) v = min(v, dist[idx + 1] + 1);
+			if (y < h - 1) v = min(v, dist[idx + w] + 1);
+			dist[idx] = v;
+		}
+	}
+
+	std::vector<float> b(SN), g(SN), r(SN), a(SN);
+
+	//premultiply: 투명 영역의 RGB 기여를 0 으로 정규화.
+	for (int i = 0; i < N; ++i)
+	{
+		const float A = float(px[i * 4 + 3]);
+		const float s = A / 255.0f;
+		b[i] = float(px[i * 4 + 0]) * s;
+		g[i] = float(px[i * 4 + 1]) * s;
+		r[i] = float(px[i * 4 + 2]) * s;
+		a[i] = A;
+	}
+
+	//이미지 영역 밖은 0 으로 취급 (zero padding). 경계 clamp 방식이면 사각형 경계에서
+	//샘플이 모두 같은 값이라 블러가 안 일어나 이미지 변과 붙은 가장자리에서 효과 없음.
+	//zero padding 시 경계 부근 픽셀의 kernel 합이 자연스럽게 작아져 alpha 가 fade.
+	auto blur1d = [&](std::vector<float>& src)
+	{
+		std::vector<float> tmp(SN);
+		const int diameter = 2 * radius + 1;
+		const float inv_d = 1.0f / float(diameter);
+
+		//horizontal
+		for (int y = 0; y < h; ++y)
+		{
+			const float* srow = src.data() + size_t(y) * w;
+			float* trow = tmp.data() + size_t(y) * w;
+			float sum = 0.0f;
+			for (int k = -radius; k <= radius; ++k)
+				if (k >= 0 && k < w)
+					sum += srow[k];
+			for (int x = 0; x < w; ++x)
+			{
+				trow[x] = sum * inv_d;
+				const int xr = x - radius;
+				const int xa = x + radius + 1;
+				if (xr >= 0 && xr < w) sum -= srow[xr];
+				if (xa >= 0 && xa < w) sum += srow[xa];
+			}
+		}
+
+		//vertical
+		for (int x = 0; x < w; ++x)
+		{
+			float sum = 0.0f;
+			for (int k = -radius; k <= radius; ++k)
+				if (k >= 0 && k < h)
+					sum += tmp[size_t(k) * w + x];
+			for (int y = 0; y < h; ++y)
+			{
+				src[size_t(y) * w + x] = sum * inv_d;
+				const int yr = y - radius;
+				const int ya = y + radius + 1;
+				if (yr >= 0 && yr < h) sum -= tmp[size_t(yr) * w + x];
+				if (ya >= 0 && ya < h) sum += tmp[size_t(ya) * w + x];
+			}
+		}
+	};
+
+	blur1d(b);
+	blur1d(g);
+	blur1d(r);
+	blur1d(a);
+
+	//un-premultiply: straight alpha 로 복원해 WIC 가 (BGRA straight) 로 인식하도록.
+	for (int i = 0; i < N; ++i)
+	{
+		const float A = a[i];
+		if (A < 0.5f)
+		{
+			px[i * 4 + 0] = 0;
+			px[i * 4 + 1] = 0;
+			px[i * 4 + 2] = 0;
+			px[i * 4 + 3] = 0;
+			continue;
+		}
+		const float s = 255.0f / A;
+		auto clamp255 = [](float v) -> BYTE
+		{
+			if (v < 0.0f) return 0;
+			if (v > 255.0f) return 255;
+			return BYTE(v + 0.5f);
+		};
+
+		//거리 기반 선형 blend: 깊은 내부(dist >= threshold) → 원본 RGB,
+		//경계(dist=1) → 거의 블러, 비-완전불투명(dist=0) → 100% 블러.
+		//threshold = 2*radius 이면 블러가 도달하는 구간 전체에서 부드럽게 blend → 경계가 시각적으로 안 보임.
+		const int blend_threshold = 2 * radius;
+		float t = float(dist[i]) / float(blend_threshold);
+		if (t > 1.0f) t = 1.0f;
+		if (t < 0.0f) t = 0.0f;
+		const float u = 1.0f - t;
+
+		const float blurredB = b[i] * s;
+		const float blurredG = g[i] * s;
+		const float blurredR = r[i] * s;
+
+		px[i * 4 + 0] = clamp255(blurredB * u + float(orig[i * 4 + 0]) * t);
+		px[i * 4 + 1] = clamp255(blurredG * u + float(orig[i * 4 + 1]) * t);
+		px[i * 4 + 2] = clamp255(blurredR * u + float(orig[i * 4 + 2]) * t);
+		px[i * 4 + 3] = clamp255(A);
+	}
+}
+
 // ------------------- CSCCapturedNoteDlg ------------------------------------
 
 IMPLEMENT_DYNAMIC(CSCCapturedNoteDlg, CDialog)
@@ -47,6 +202,9 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 
 	m_img_w = w;
 	m_img_h = h;
+
+	//후속 효과 (gradient edge 등) 에서 다시 사용하므로 픽셀 보관.
+	m_bgra_data.assign(bgra, bgra + size_t(w) * size_t(h) * 4);
 
 	//캡션 / 보더 없는 popup. 검은 배경 (이미지 영역 외에 잠깐 보이더라도 무난).
 	LPCTSTR wnd_class = ::AfxRegisterWndClass(
@@ -276,6 +434,8 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 	menu.AppendMenu(flag_100,	cmd_zoom_100, _T("100% 크기\tCtrl+W"));
 	menu.AppendMenu(flag_fit,	cmd_zoom_fit, _T("창에 맞춤(&F)\tCtrl+F"));
 	menu.AppendMenu(MF_SEPARATOR);
+	menu.AppendMenu(MF_STRING, cmd_gradient_edge, _T("Gradient Edge(&G)"));
+	menu.AppendMenu(MF_SEPARATOR);
 	menu.AppendMenu(MF_STRING, cmd_close,	_T("닫기(&X)\tEsc"));
 
 	SetForegroundWindow();
@@ -341,6 +501,45 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 		case cmd_close:
 			DestroyWindow();
 			break;
+
+		case cmd_gradient_edge:
+		{
+			//현재 BGRA 버퍼에 edge 블러 적용 후 D2D 비트맵 다시 로드.
+			//첫 호출 시 캔버스를 32px 씩 확장 (alpha=0 마진) → blur 가 자연스럽게 마진 안으로 fade.
+			//이후 호출은 확장된 버퍼 그대로 사용해 누적 블러만 진행.
+			if (m_bgra_data.empty() || m_img_w <= 0 || m_img_h <= 0)
+				break;
+
+			if (!m_edge_padded)
+			{
+				const int P = 32;
+				const int new_w = m_img_w + 2 * P;
+				const int new_h = m_img_h + 2 * P;
+				std::vector<BYTE> padded(size_t(new_w) * size_t(new_h) * 4, 0);
+				for (int y = 0; y < m_img_h; ++y)
+				{
+					memcpy(padded.data() + (size_t(y + P) * new_w + P) * 4,
+						m_bgra_data.data() + size_t(y) * m_img_w * 4,
+						size_t(m_img_w) * 4);
+				}
+				m_bgra_data = std::move(padded);
+				m_img_w = new_w;
+				m_img_h = new_h;
+				m_edge_padded = true;
+			}
+
+			const int radius = 4;
+			apply_edge_blur(m_bgra_data.data(), m_img_w, m_img_h, radius);
+
+			HRESULT hr = m_image.load(m_d2.get_WICFactory(), m_d2.get_d2dc(),
+				m_bgra_data.data(), m_img_w, m_img_h, 4);
+			if (SUCCEEDED(hr) && m_image.is_valid())
+			{
+				m_img_dlg.set_image(&m_image);
+				m_img_dlg.Invalidate(FALSE);
+			}
+			break;
+		}
 
 		case cmd_save:
 		{

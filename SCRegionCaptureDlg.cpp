@@ -3,6 +3,7 @@
 #include "pch.h"
 #include "SCRegionCaptureDlg.h"
 #include "Common/Functions.h"
+#include "Common/cursor_helpers.h"
 
 #include <utility>
 #include <dwrite.h>
@@ -28,7 +29,7 @@ BOOL CSCRegionCaptureDlg::OnSetCursor(CWnd* /*pWnd*/, UINT /*nHitTest*/, UINT /*
 	}
 	else
 	{
-		hc = ::LoadCursor(NULL, IDC_CROSS);
+		hc = get_thin_cross_cursor();
 	}
 	::SetCursor(hc);
 	return TRUE;
@@ -255,7 +256,7 @@ HCURSOR CSCRegionCaptureDlg::query_cursor(CPoint pt)
 {
 	if (m_phase == Phase::phase_edit)
 		return ::LoadCursor(NULL, cursor_id_for_hit(hit_test(pt)));
-	return ::LoadCursor(NULL, IDC_CROSS);
+	return get_thin_cross_cursor();
 }
 
 void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)

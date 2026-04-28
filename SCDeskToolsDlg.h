@@ -91,6 +91,7 @@ protected:
 	afx_msg void OnToolDropper();
 	afx_msg void OnToolCaptureWindow();
 	afx_msg void OnToolCaptureRegion();
+	afx_msg void OnToolCaptureFreehand();
 	afx_msg void OnToolCaptureFullscreen();
 	afx_msg void OnToolCaptureMonitor(UINT nID);	//ID_TOOL_CAPTURE_MONITOR_FIRST..LAST 범위 처리
 	afx_msg void OnToolPasteClipboard();
