@@ -510,9 +510,21 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 			if (m_bgra_data.empty() || m_img_w <= 0 || m_img_h <= 0)
 				break;
 
+			bool resize_pending = false;
+			int  pending_x = 0, pending_y = 0, pending_w = 0, pending_h = 0;
+
 			if (!m_edge_padded)
 			{
 				const int P = 32;
+
+				//패딩으로 인해 시각적으로 이미지가 축소되지 않도록 창 크기를 늘려준다.
+				//현재 displayed_rect 의 이미지 1픽셀 당 화면 픽셀 비율 (scale) 을 그대로 유지하도록
+				//창 client 크기를 새로운 캔버스 크기 * scale 로 강제 → fit2ctrl 든 zoom 모드든
+				//원본 영역 픽셀이 동일한 화면 크기로 그려진다.
+				CRect rc_disp = m_img_dlg.get_displayed_rect();
+				double sx = (m_img_w  > 0 && rc_disp.Width()  > 0) ? double(rc_disp.Width())  / double(m_img_w)  : 1.0;
+				double sy = (m_img_h > 0 && rc_disp.Height() > 0) ? double(rc_disp.Height()) / double(m_img_h) : 1.0;
+
 				const int new_w = m_img_w + 2 * P;
 				const int new_h = m_img_h + 2 * P;
 				std::vector<BYTE> padded(size_t(new_w) * size_t(new_h) * 4, 0);
@@ -526,6 +538,25 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 				m_img_w = new_w;
 				m_img_h = new_h;
 				m_edge_padded = true;
+
+				//창 크기 변경은 새 이미지를 로드 후로 미룸 — fit2ctrl 모드에서
+				//구 m_image 가 새 창 크기로 stretch 되는 1프레임 잔상을 방지.
+				CRect rc_window, rc_client;
+				GetWindowRect(rc_window);
+				GetClientRect(rc_client);
+				const int nc_cx = rc_window.Width()  - rc_client.Width();
+				const int nc_cy = rc_window.Height() - rc_client.Height();
+
+				const int new_client_cx = int(double(new_w) * sx + 0.5);
+				const int new_client_cy = int(double(new_h) * sy + 0.5);
+				const int dx = int(double(P) * sx + 0.5);
+				const int dy = int(double(P) * sy + 0.5);
+
+				pending_x = rc_window.left - dx;
+				pending_y = rc_window.top  - dy;
+				pending_w = new_client_cx + nc_cx;
+				pending_h = new_client_cy + nc_cy;
+				resize_pending = true;
 			}
 
 			const int radius = 4;
@@ -533,10 +564,30 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 
 			HRESULT hr = m_image.load(m_d2.get_WICFactory(), m_d2.get_d2dc(),
 				m_bgra_data.data(), m_img_w, m_img_h, 4);
-			if (SUCCEEDED(hr) && m_image.is_valid())
+
+			//창 리사이즈 동안 자식 m_img_dlg 가 먼저 paint 되어 stretch 보이는 것을 막기 위해
+			//SetRedraw(FALSE) → 새 이미지로 set_image → SetWindowPos → SetRedraw(TRUE) + Invalidate.
+			if (resize_pending)
 			{
-				m_img_dlg.set_image(&m_image);
+				m_img_dlg.SetRedraw(FALSE);
+
+				if (SUCCEEDED(hr) && m_image.is_valid())
+					m_img_dlg.set_image(&m_image);
+
+				SetWindowPos(NULL,
+					pending_x, pending_y, pending_w, pending_h,
+					SWP_NOZORDER | SWP_NOACTIVATE);
+
+				m_img_dlg.SetRedraw(TRUE);
 				m_img_dlg.Invalidate(FALSE);
+			}
+			else
+			{
+				if (SUCCEEDED(hr) && m_image.is_valid())
+				{
+					m_img_dlg.set_image(&m_image);
+					m_img_dlg.Invalidate(FALSE);
+				}
 			}
 			break;
 		}
@@ -747,16 +798,27 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 	if (!d2dc)
 		return;
 
-	if (m_hover_pixel.X < 0.0f || m_hover_pixel.Y < 0.0f)
-		return;
-
 	CRect rc;
 	m_img_dlg.GetClientRect(&rc);
+
+	const int margin = 6;
+
+	if (m_img_w > 0 && m_img_h > 0)
+	{
+		WCHAR size_text[64];
+		swprintf_s(size_text, L"(%d x %d)", m_img_w, m_img_h);
+		draw_text(d2dc, CRect(rc.left + margin, rc.top, rc.right, rc.bottom - margin), size_text,
+			_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+			Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,
+			1.0f, DT_LEFT | DT_BOTTOM);
+	}
+
+	if (m_hover_pixel.X < 0.0f || m_hover_pixel.Y < 0.0f)
+		return;
 
 	WCHAR text[64];
 	swprintf_s(text, L"(%d, %d)", int(m_hover_pixel.X), int(m_hover_pixel.Y));
 
-	const int margin = 6;
 	draw_text(d2dc, CRect(rc.left, rc.top, rc.right - margin, rc.bottom - margin), text,
 		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
 		Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,

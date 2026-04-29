@@ -126,6 +126,7 @@ namespace
 		{ 1,	ID_TOOL_CAPTURE_WINDOW,		MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'S',	_T("창 캡처 (Alt+Shift+S)") },
 		{ 2,	ID_TOOL_CAPTURE_FULLSCREEN,	MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'F',	_T("전체 화면 캡처 (Alt+Shift+F)") },
 		{ 3,	ID_TOOL_CAPTURE_REGION,		MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'R',	_T("영역 캡처 (Alt+Shift+R)") },
+		{ 9,	ID_TOOL_CAPTURE_FREEHAND,	MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'H',	_T("자유 영역 캡처 (Alt+Shift+H)") },
 		{ 4,	ID_TOOL_PASTE_CLIPBOARD,	MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'V',	_T("클립보드 이미지 띠우기 (Alt+Shift+V)") },
 		{ 5,	ID_TOOL_COLOR_PICKER,		MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'C',	_T("컬러 피커 (Alt+Shift+C)") },
 		{ 6,	ID_TOOL_DROPPER,			MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'M',	_T("화면 돋보기 (Alt+Shift+M)") },
@@ -484,26 +485,22 @@ void CSCDeskToolsDlg::show_tools_popup_menu(CPoint pt_screen)
 			}
 			sub.AppendMenu(flags, t.id, item_text);
 
-			//전체 화면 캡처 바로 다음에 모니터별 캡처 서브메뉴 (모니터 2개 이상일 때만).
+			//전체 화면 캡처 바로 다음에 모니터별 캡처 항목들을 같은 서브메뉴에 펼쳐서 추가 (모니터 2개 이상일 때만).
 			if (t.id == ID_TOOL_CAPTURE_FULLSCREEN)
 			{
 				enum_display_monitors();	//Common: g_monitors 갱신
 				if (g_monitors.size() >= 2)
 				{
-					CMenu sub_mon;
-					sub_mon.CreatePopupMenu();
 					const size_t max_n = std::min<size_t>(g_monitors.size(),
 						ID_TOOL_CAPTURE_MONITOR_LAST - ID_TOOL_CAPTURE_MONITOR_FIRST + 1);
 					for (size_t i = 0; i < max_n; ++i)
 					{
 						CString s;
 						s.Format(_T("%d번 모니터 캡처"), int(i + 1));
-						//모니터 단축키도 처음 9 개까지 Alt+Shift+1..9 로 표시.
 						if (i < monitor_hotkey_max_count)
 							s.AppendFormat(_T("\tAlt+Shift+%d"), int(i + 1));
-						sub_mon.AppendMenu(MF_STRING, ID_TOOL_CAPTURE_MONITOR_FIRST + UINT(i), s);
+						sub.AppendMenu(MF_STRING, ID_TOOL_CAPTURE_MONITOR_FIRST + UINT(i), s);
 					}
-					sub.AppendMenu(MF_POPUP, (UINT_PTR)sub_mon.Detach(), _T("모니터별 캡처"));
 				}
 			}
 		}
@@ -862,6 +859,7 @@ void CSCDeskToolsDlg::OnToolDropper()
 
 //본 파일 하단 정의를 앞쪽 사용처에서 참조 가능하게 forward declaration.
 static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h);
+static bool decode_png_hglobal_to_bgra(HGLOBAL hg, std::vector<BYTE>& out_bgra_top_down, int& out_w, int& out_h);
 
 void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down, int w, int h, POINT note_pos)
 {
@@ -1048,6 +1046,86 @@ cleanup:
 	if (pStream)	pStream->Release();
 	if (pFactory)	pFactory->Release();
 	return hg_out;
+}
+
+//클립보드에서 가져온 PNG HGLOBAL → 32bpp BGRA top-down 픽셀로 디코드.
+//성공 시 out_bgra_top_down 에 w*h*4 바이트 채움. alpha 채널 보존.
+static bool decode_png_hglobal_to_bgra(HGLOBAL hg, std::vector<BYTE>& out_bgra_top_down, int& out_w, int& out_h)
+{
+	if (!hg)
+		return false;
+
+	bool ok = false;
+	IWICImagingFactory* pFactory = NULL;
+	IStream* pStream = NULL;
+	IWICBitmapDecoder* pDecoder = NULL;
+	IWICBitmapFrameDecode* pFrame = NULL;
+	IWICFormatConverter* pConverter = NULL;
+
+	const SIZE_T size = ::GlobalSize(hg);
+	if (size == 0)
+		return false;
+	BYTE* mem = static_cast<BYTE*>(::GlobalLock(hg));
+	if (!mem)
+		return false;
+
+	HRESULT hr = ::CoCreateInstance(CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER,
+		IID_PPV_ARGS(&pFactory));
+	if (FAILED(hr) || !pFactory)
+		goto cleanup;
+
+	hr = ::CreateStreamOnHGlobal(NULL, TRUE, &pStream);
+	if (FAILED(hr) || !pStream)
+		goto cleanup;
+	{
+		ULONG written = 0;
+		pStream->Write(mem, static_cast<ULONG>(size), &written);
+		LARGE_INTEGER zero = {};
+		pStream->Seek(zero, STREAM_SEEK_SET, NULL);
+	}
+
+	hr = pFactory->CreateDecoderFromStream(pStream, NULL, WICDecodeMetadataCacheOnDemand, &pDecoder);
+	if (FAILED(hr) || !pDecoder)
+		goto cleanup;
+
+	hr = pDecoder->GetFrame(0, &pFrame);
+	if (FAILED(hr) || !pFrame)
+		goto cleanup;
+
+	hr = pFactory->CreateFormatConverter(&pConverter);
+	if (FAILED(hr) || !pConverter)
+		goto cleanup;
+
+	hr = pConverter->Initialize(pFrame, GUID_WICPixelFormat32bppBGRA,
+		WICBitmapDitherTypeNone, NULL, 0.0, WICBitmapPaletteTypeCustom);
+	if (FAILED(hr))
+		goto cleanup;
+	{
+		UINT w = 0, h = 0;
+		hr = pConverter->GetSize(&w, &h);
+		if (FAILED(hr) || w == 0 || h == 0)
+			goto cleanup;
+
+		const UINT stride = w * 4;
+		const UINT cb = stride * h;
+		out_bgra_top_down.resize(cb);
+		hr = pConverter->CopyPixels(NULL, stride, cb, out_bgra_top_down.data());
+		if (FAILED(hr))
+			goto cleanup;
+
+		out_w = static_cast<int>(w);
+		out_h = static_cast<int>(h);
+		ok = true;
+	}
+
+cleanup:
+	if (pConverter)	pConverter->Release();
+	if (pFrame)		pFrame->Release();
+	if (pDecoder)	pDecoder->Release();
+	if (pStream)	pStream->Release();
+	if (pFactory)	pFactory->Release();
+	::GlobalUnlock(hg);
+	return ok;
 }
 
 //Win11+ 라운드 코너 반경 추정. Win10/older 또는 명시적 DONOTROUND 면 0.
@@ -1609,7 +1687,16 @@ void CSCDeskToolsDlg::OnToolPasteClipboard()
 	int height = 0;
 	std::vector<BYTE> bgra;	//top-down 32bpp BGRA
 
-	HANDLE h_data = ::GetClipboardData(CF_DIB);
+	//1) PNG 우선 — alpha 보존 (freehand / 라운드 코너 캡처 등 투명 영역 살림).
+	const UINT cf_png = ::RegisterClipboardFormat(_T("PNG"));
+	if (cf_png && ::IsClipboardFormatAvailable(cf_png))
+	{
+		HANDLE hp = ::GetClipboardData(cf_png);
+		if (hp && decode_png_hglobal_to_bgra(static_cast<HGLOBAL>(hp), bgra, width, height))
+			ok = true;
+	}
+
+	HANDLE h_data = ok ? NULL : ::GetClipboardData(CF_DIB);
 	if (h_data)
 	{
 		BYTE* mem = static_cast<BYTE*>(::GlobalLock(h_data));
