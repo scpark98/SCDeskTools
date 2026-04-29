@@ -58,7 +58,7 @@ namespace
 		{ ID_TOOL_CAPTURE_FULLSCREEN,	_T("전체 화면 캡처"),			_T("전체 화면 캡처"),			cat_capture },
 		{ ID_TOOL_CAPTURE_WINDOW,		_T("창 캡처"),					_T("창 캡처"),					cat_capture },
 		{ ID_TOOL_CAPTURE_REGION,		_T("영역 캡처"),					_T("영역 캡처"),					cat_capture },
-		{ ID_TOOL_CAPTURE_FREEHAND,		_T("자유선 캡처"),				_T("자유선 캡처"),				cat_capture },
+		{ ID_TOOL_CAPTURE_FREEHAND,		_T("자유 영역 캡처"),			_T("자유 영역 캡처"),			cat_capture },
 		{ ID_TOOL_PASTE_CLIPBOARD,		_T("클립보드 이미지 띠우기"),		_T("클립보드 이미지 띠우기"),		cat_capture },
 		//Color
 		{ ID_TOOL_COLOR_PICKER,			_T("컬러 피커"),					_T("컬러 피커"),					cat_color },
@@ -1472,7 +1472,7 @@ void CSCDeskToolsDlg::OnToolCaptureFreehand()
 	CSCFreehandCaptureDlg dlg;
 	if (!dlg.create(this))
 	{
-		AfxMessageBox(_T("자유선 캡처 오버레이 생성 실패"));
+		AfxMessageBox(_T("자유 영역 캡처 오버레이 생성 실패"));
 		return;
 	}
 
