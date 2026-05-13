@@ -1299,156 +1299,52 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 	CRect rc_highlight = dlg.get_picked_rect_screen();
 	CRect rc_virtual	= dlg.get_virtual_screen_rect();
 
-	//1) PrintWindow 시도. 결과 DIB 는 클립보드용으로 살아있게 유지 (성공 시 클립보드 소유권 이전).
-	CRect rc_window;
-	::GetWindowRect(hwnd, &rc_window);
+	//창 캡처 = 프리즈 가상 데스크톱 DIB 에서 hwnd 의 가시 rect 영역만 crop.
+	//(rc_highlight 는 SCCaptureOverlayDlg 가 DwmGetWindowAttribute(EXTENDED_FRAME_BOUNDS) 로 잡은 가시 rect.)
+	//
+	//이전엔 PrintWindow(PW_RENDERFULLCONTENT) 를 우선 사용했으나, 자체 DC 로 그리는
+	//커스텀 child 컨트롤이나 WM_PRINTCLIENT 에 응답하지 않는 컴포넌트가 캡처 결과에서
+	//통째로 누락되는 알려진 이슈가 있어 frozen DIB crop 으로 일원화. 영역 캡처와 동일 방식.
+	const int w_clip = rc_highlight.Width();
+	const int h_clip = rc_highlight.Height();
+	HBITMAP hbmp_for_clip = NULL;
 
-	//Win10+ 의 보이지 않는 drop shadow / resize 보더 영역을 빼고 실제 가시 rect 획득.
-	//PrintWindow 는 GetWindowRect 크기로 캡처하므로 이후 가시 영역으로 crop 필요.
-	//DwmGetWindowAttribute 결과도 좌·우·하 보더에 1px 의 anti-alias / 잔여 그림자가 남는 경우가 있어
-	//DeflateRect(1, 0, 1, 1) 로 다듬어 줌 (top 은 정확하므로 그대로).
-	CRect rc_visible = rc_window;
+	if (w_clip > 0 && h_clip > 0)
 	{
-		RECT rc_dwm = {};
-		if (SUCCEEDED(::DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &rc_dwm, sizeof(rc_dwm))))
-		{
-			rc_visible = rc_dwm;
-			rc_visible.DeflateRect(1, 0, 1, 1);
-		}
-	}
-
-	int pw_w = rc_window.Width();
-	int pw_h = rc_window.Height();
-	bool pw_ok = false;
-	int	pw_nonblack_pct = 0;
-	HBITMAP hbmp_pw = NULL;
-
-	if (pw_w > 0 && pw_h > 0)
-	{
-		HDC hdc_screen = ::GetDC(NULL);
-		HDC hdc_mem = ::CreateCompatibleDC(hdc_screen);
-
-		BITMAPINFO bmi = {};
-		bmi.bmiHeader.biSize	= sizeof(bmi.bmiHeader);
-		bmi.bmiHeader.biWidth	= pw_w;
-		bmi.bmiHeader.biHeight	= -pw_h;
-		bmi.bmiHeader.biPlanes	= 1;
-		bmi.bmiHeader.biBitCount	= 32;
-		bmi.bmiHeader.biCompression = BI_RGB;
-
-		void* bits = nullptr;
-		hbmp_pw = ::CreateDIBSection(hdc_mem, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
-		HGDIOBJ old = ::SelectObject(hdc_mem, hbmp_pw);
-
-		BOOL ok = ::PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT);
-
-		if (ok && bits)
-		{
-			BYTE* p = static_cast<BYTE*>(bits);
-			int total = pw_w * pw_h;
-			int step = (total > 4096) ? (total / 4096) : 1;
-			int sampled = 0, nonblack = 0;
-			for (int i = 0; i < total; i += step)
-			{
-				sampled++;
-				BYTE b = p[i * 4 + 0];
-				BYTE g = p[i * 4 + 1];
-				BYTE r = p[i * 4 + 2];
-				if (r > 8 || g > 8 || b > 8)
-					nonblack++;
-			}
-			pw_nonblack_pct = sampled ? (nonblack * 100 / sampled) : 0;
-			pw_ok = (pw_nonblack_pct >= 5);
-
-			//alpha 채널이 0 이면 일부 paste target 에서 투명하게 보임. 0xFF 로 채움.
-			if (pw_ok)
-			{
-				for (int i = 0; i < total; ++i)
-					p[i * 4 + 3] = 0xFF;
-			}
-		}
-
-		::SelectObject(hdc_mem, old);
-		::DeleteDC(hdc_mem);
-		::ReleaseDC(NULL, hdc_screen);
-	}
-
-	//1.5) PrintWindow 성공 + DWM 가시 rect 가 GetWindowRect 보다 작으면 그 영역으로 crop.
-	//     (Win10/11 의 보이지 않는 drop shadow / resize 보더 1~8px 가 캡처 결과에 포함되는 문제 해결.)
-	if (pw_ok && hbmp_pw && rc_visible != rc_window)
-	{
-		const int dx = rc_visible.left - rc_window.left;
-		const int dy = rc_visible.top	- rc_window.top;
-		const int cw = rc_visible.Width();
-		const int ch = rc_visible.Height();
-
-		if (cw > 0 && ch > 0 && dx >= 0 && dy >= 0 && dx + cw <= pw_w && dy + ch <= pw_h)
+		HBITMAP hbmp_src = dlg.get_frozen_hbitmap();
+		if (hbmp_src)
 		{
 			HDC hdc_screen = ::GetDC(NULL);
 			HDC hdc_src	= ::CreateCompatibleDC(hdc_screen);
 			HDC hdc_dst	= ::CreateCompatibleDC(hdc_screen);
 
-			BITMAPINFO bmi_c = {};
-			bmi_c.bmiHeader.biSize	= sizeof(bmi_c.bmiHeader);
-			bmi_c.bmiHeader.biWidth	= cw;
-			bmi_c.bmiHeader.biHeight	= -ch;
-			bmi_c.bmiHeader.biPlanes	= 1;
-			bmi_c.bmiHeader.biBitCount	= 32;
-			bmi_c.bmiHeader.biCompression = BI_RGB;
-
-			void* dst_bits = nullptr;
-			HBITMAP hbmp_crop = ::CreateDIBSection(hdc_dst, &bmi_c, DIB_RGB_COLORS, &dst_bits, NULL, 0);
-			HGDIOBJ old_src = ::SelectObject(hdc_src, hbmp_pw);
-			HGDIOBJ old_dst = ::SelectObject(hdc_dst, hbmp_crop);
-
-			::BitBlt(hdc_dst, 0, 0, cw, ch, hdc_src, dx, dy, SRCCOPY);
-
-			::SelectObject(hdc_src, old_src);
-			::SelectObject(hdc_dst, old_dst);
-			::DeleteDC(hdc_src);
-			::DeleteDC(hdc_dst);
-			::ReleaseDC(NULL, hdc_screen);
-
-			//원본 PW 비트맵 교체. 이후 코드는 hbmp_pw / pw_w / pw_h 만 보면 되므로.
-			::DeleteObject(hbmp_pw);
-			hbmp_pw = hbmp_crop;
-			pw_w = cw;
-			pw_h = ch;
-		}
-	}
-
-	//2) PrintWindow 실패 시 → 프리즈 캡처에서 sub-region BitBlt 로 폴백 HBITMAP 생성.
-	HBITMAP hbmp_fallback = NULL;
-	if (!pw_ok)
-	{
-		HBITMAP hbmp_src = dlg.get_frozen_hbitmap();
-		int dst_w = rc_highlight.Width();
-		int dst_h = rc_highlight.Height();
-
-		if (hbmp_src && dst_w > 0 && dst_h > 0)
-		{
-			HDC hdc_screen = ::GetDC(NULL);
-			HDC hdc_src = ::CreateCompatibleDC(hdc_screen);
-			HDC hdc_dst = ::CreateCompatibleDC(hdc_screen);
-
 			BITMAPINFO bmi = {};
 			bmi.bmiHeader.biSize	= sizeof(bmi.bmiHeader);
-			bmi.bmiHeader.biWidth	= dst_w;
-			bmi.bmiHeader.biHeight	= -dst_h;
+			bmi.bmiHeader.biWidth	= w_clip;
+			bmi.bmiHeader.biHeight	= -h_clip;
 			bmi.bmiHeader.biPlanes	= 1;
 			bmi.bmiHeader.biBitCount	= 32;
 			bmi.bmiHeader.biCompression = BI_RGB;
 
 			void* dst_bits = nullptr;
-			hbmp_fallback = ::CreateDIBSection(hdc_dst, &bmi, DIB_RGB_COLORS, &dst_bits, NULL, 0);
+			hbmp_for_clip = ::CreateDIBSection(hdc_dst, &bmi, DIB_RGB_COLORS, &dst_bits, NULL, 0);
 			HGDIOBJ old_src = ::SelectObject(hdc_src, hbmp_src);
-			HGDIOBJ old_dst = ::SelectObject(hdc_dst, hbmp_fallback);
+			HGDIOBJ old_dst = ::SelectObject(hdc_dst, hbmp_for_clip);
 
 			//프리즈 DIB 좌표 = virtual screen 기준 0,0. screen rect 를 좌상단 기준 좌표로 변환.
-			::BitBlt(hdc_dst, 0, 0, dst_w, dst_h,
+			::BitBlt(hdc_dst, 0, 0, w_clip, h_clip,
 				hdc_src, rc_highlight.left - rc_virtual.left,
 				         rc_highlight.top	- rc_virtual.top,
 				SRCCOPY);
+
+			//BI_RGB 32bpp BitBlt 결과의 alpha 채널은 0. 일부 paste target 에서 투명하게 보임 → 0xFF 채움.
+			if (dst_bits)
+			{
+				BYTE* p = static_cast<BYTE*>(dst_bits);
+				const int total = w_clip * h_clip;
+				for (int i = 0; i < total; ++i)
+					p[i * 4 + 3] = 0xFF;
+			}
 
 			::SelectObject(hdc_src, old_src);
 			::SelectObject(hdc_dst, old_dst);
@@ -1457,11 +1353,6 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 			::ReleaseDC(NULL, hdc_screen);
 		}
 	}
-
-	//3) 클립보드 + floating note ? 헬퍼로 일원화. PrintWindow 성공이면 hbmp_pw, 아니면 hbmp_fallback.
-	HBITMAP hbmp_for_clip = pw_ok ? hbmp_pw : hbmp_fallback;
-	const int w_clip = pw_ok ? pw_w : rc_highlight.Width();
-	const int h_clip = pw_ok ? pw_h : rc_highlight.Height();
 
 	//Win11 라운드 코너 마스킹: 4 모서리 호 바깥 alpha=0. PNG 저장/D2D 노트 표시 시 투명.
 	if (hbmp_for_clip)
@@ -1480,18 +1371,15 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 		DIBSECTION ds = {};
 		if (::GetObject(hbmp_for_clip, sizeof(ds), &ds) == sizeof(ds) && ds.dsBm.bmBits)
 		{
-			//note 위치 = 가시 rect 좌상단 (PrintWindow 성공 시 crop 된 영역의 시작점).
-			//폴백 경로는 rc_highlight 가 이미 DWM 가시 rect 라 동일.
-			POINT pos = { rc_visible.left, rc_visible.top };
+			POINT pos = { rc_highlight.left, rc_highlight.top };
 			send_image_to_clipboard_and_note(
 				static_cast<const BYTE*>(ds.dsBm.bmBits),
 				w_clip, h_clip, pos);
 		}
 	}
 
-	//우리가 소유한 HBITMAP 들은 클립보드 / 노트와 무관하게 모두 정리.
-	if (hbmp_pw)	::DeleteObject(hbmp_pw);
-	if (hbmp_fallback) ::DeleteObject(hbmp_fallback);
+	if (hbmp_for_clip)
+		::DeleteObject(hbmp_for_clip);
 }
 
 void CSCDeskToolsDlg::OnToolCaptureRegion()
