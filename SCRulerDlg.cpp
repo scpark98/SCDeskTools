@@ -4,6 +4,7 @@
 #include "SCRulerDlg.h"
 
 #include <math.h>
+#include <vector>
 #include <dwrite.h>
 #pragma comment(lib, "dwrite.lib")
 
@@ -225,16 +226,18 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 
 	ComPtr<ID2D1SolidColorBrush> br_line;
 	ComPtr<ID2D1SolidColorBrush> br_tick;
-	ComPtr<ID2D1SolidColorBrush> br_handle_fill;
 	ComPtr<ID2D1SolidColorBrush> br_handle_stroke;
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x00B894, 1.00f), br_line.GetAddressOf());	//teal
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 0.85f), br_tick.GetAddressOf());
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_handle_fill.GetAddressOf());
+	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_tick.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x00B894, 1.00f), br_handle_stroke.GetAddressOf());
 
 	d2dc->DrawLine(p_s, p_e, br_line.Get(), 2.0f);
 
 	//tick mark — 라인을 따라 일정 간격마다 수직으로 짧은 선.
+	//두 패스: (1) 검은 tick 을 CommandList 에 그려 Gaussian blur effect 적용 → 부드러운 그림자.
+	//        (2) 그 위에 흰 tick 본체. 흰/검 양쪽 바탕에서 모두 가시.
+	struct TickSeg { D2D1_POINT_2F base; D2D1_POINT_2F tip; };
+	std::vector<TickSeg> ticks;
 	if (length > 1.0)
 	{
 		double ux = dx / length;	//unit vector along line
@@ -250,6 +253,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		const int len_major	= 11;
 
 		const int total = int(length);
+		ticks.reserve(total / step_minor + 1);
 		for (int i = step_minor; i < total; i += step_minor)
 		{
 			int tick_len;
@@ -263,9 +267,42 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			D2D1_POINT_2F tip = D2D1::Point2F(
 				base.x + float(nx * tick_len),
 				base.y + float(ny * tick_len));
-			d2dc->DrawLine(base, tip, br_tick.Get(), 1.0f);
+			ticks.push_back({ base, tip });
 		}
 	}
+
+	//Pass 1: tick 들 검정으로 CommandList 에 그리고 Gaussian blur 적용 → 메인 target 에 합성.
+	if (!ticks.empty())
+	{
+		ComPtr<ID2D1CommandList> cmd_ticks;
+		if (SUCCEEDED(d2dc->CreateCommandList(cmd_ticks.GetAddressOf())))
+		{
+			ComPtr<ID2D1Image> prev_target;
+			d2dc->GetTarget(prev_target.GetAddressOf());
+			d2dc->SetTarget(cmd_ticks.Get());
+
+			ComPtr<ID2D1SolidColorBrush> br_black;
+			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 1.00f), br_black.GetAddressOf());
+			for (const auto& t : ticks)
+				d2dc->DrawLine(t.base, t.tip, br_black.Get(), 1.5f);
+
+			d2dc->SetTarget(prev_target.Get());
+			cmd_ticks->Close();
+
+			ComPtr<ID2D1Effect> blur;
+			if (SUCCEEDED(d2dc->CreateEffect(CLSID_D2D1GaussianBlur, blur.GetAddressOf())))
+			{
+				blur->SetInput(0, cmd_ticks.Get());
+				//STANDARD_DEVIATION 픽셀 단위. 1.6 정도면 약 5px 폭의 부드러운 후광.
+				blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, 1.6f);
+				d2dc->DrawImage(blur.Get());
+			}
+		}
+	}
+
+	//Pass 2: 흰 tick 본체.
+	for (const auto& t : ticks)
+		d2dc->DrawLine(t.base, t.tip, br_tick.Get(), 1.0f);
 
 	//길이 + 각도 라벨. 라인 중점에서 수직 방향으로 약간 떨어뜨림.
 	{
@@ -285,10 +322,15 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			//각도는 화면 좌표계 (y 아래) 기준 atan2 → 일반 수학 좌표 (y 위) 로 부호 뒤집어 표시.
 			double angle_deg = -atan2(dy, dx) * 180.0 / pi;
 
-			WCHAR text[64];
-			swprintf_s(text, L"%.1f px   %.1f°", length, angle_deg);
+			//앱이 DPI Unaware 라 GetDeviceCaps(LOGPIXELSX) 가 OS 스케일과 무관하게 96 반환.
+			//어떤 모니터 스케일에서도 동일 length → 동일 cm 로 일관. 명시 상수로 의도 표시.
+			const double dpi = 96.0;
+			const double length_cm = length / dpi * 2.54;
 
-			const float lw = 180.0f;
+			WCHAR text[96];
+			swprintf_s(text, L"%.1f px (%.2f cm)   %.1f°", length, length_cm, angle_deg);
+
+			const float lw = 250.0f;
 			const float lh = 28.0f;
 
 			//중점 기준, 라인의 수직 방향(왼쪽) 으로 lh + 라벨 절반 만큼 옮김.
@@ -335,13 +377,12 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		}
 	}
 
-	//endpoint handles.
+	//endpoint handles: 빈 원 (stroke 만). 흰 채움이 커서 끝점을 가려 정확한 측정 위치 식별
+	//이 어려운 문제 해소 — 원 안쪽은 비워 라인 끝점과 픽셀이 그대로 보임.
 	auto draw_handle = [&](D2D1_POINT_2F p)
 	{
-		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(handle_radius),	float(handle_radius));
-		D2D1_ELLIPSE e_inner = D2D1::Ellipse(p, float(handle_radius - 2), float(handle_radius - 2));
-		d2dc->FillEllipse(e_outer, br_handle_stroke.Get());
-		d2dc->FillEllipse(e_inner, br_handle_fill.Get());
+		D2D1_ELLIPSE e = D2D1::Ellipse(p, float(handle_radius), float(handle_radius));
+		d2dc->DrawEllipse(e, br_handle_stroke.Get(), 1.5f);
 	};
 	draw_handle(p_s);
 	draw_handle(p_e);

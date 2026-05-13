@@ -219,12 +219,10 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	}
 
 	ComPtr<ID2D1SolidColorBrush> br_arm;
-	ComPtr<ID2D1SolidColorBrush> br_handle_fill;
 	ComPtr<ID2D1SolidColorBrush> br_handle_stroke;
 	ComPtr<ID2D1SolidColorBrush> br_arc;
 	ComPtr<ID2D1SolidColorBrush> br_arc_fill;
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFF3B30, 1.00f),	br_arm.GetAddressOf());
-	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_handle_fill.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFF3B30, 1.00f),	br_handle_stroke.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFFD60A, 1.00f),	br_arc.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFFD60A, 0.25f),	br_arc_fill.GetAddressOf());
@@ -350,12 +348,12 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		}
 	}
 
+	//빈 원 (stroke 만). 흰 채움이 커서 끝점을 가려 정확한 위치 식별이 어려운 문제 해소
+	//— 줄자와 동일 패턴.
 	auto draw_handle = [&](D2D1_POINT_2F p)
 	{
-		D2D1_ELLIPSE e_outer = D2D1::Ellipse(p, float(handle_radius),	float(handle_radius));
-		D2D1_ELLIPSE e_inner = D2D1::Ellipse(p, float(handle_radius - 2), float(handle_radius - 2));
-		d2dc->FillEllipse(e_outer, br_handle_stroke.Get());
-		d2dc->FillEllipse(e_inner, br_handle_fill.Get());
+		D2D1_ELLIPSE e = D2D1::Ellipse(p, float(handle_radius), float(handle_radius));
+		d2dc->DrawEllipse(e, br_handle_stroke.Get(), 1.5f);
 	};
 
 	draw_handle(p_v);

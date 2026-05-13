@@ -858,7 +858,7 @@ void CSCDeskToolsDlg::OnToolDropper()
 }
 
 //본 파일 하단 정의를 앞쪽 사용처에서 참조 가능하게 forward declaration.
-static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h);
+static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h, int dpi_x, int dpi_y);
 static bool decode_png_hglobal_to_bgra(HGLOBAL hg, std::vector<BYTE>& out_bgra_top_down, int& out_w, int& out_h);
 
 void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down, int w, int h, POINT note_pos)
@@ -872,6 +872,16 @@ void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down
 	const int stride = w * 4;
 	const DWORD pixel_size = static_cast<DWORD>(stride) * h;
 
+	//시스템 DPI 획득 → PNG pHYs / DIB biXPelsPerMeter 에 기록.
+	//PowerPoint 등은 (픽셀수 ÷ DPI) 로 슬라이드 인치 크기를 결정. 메타데이터 누락 시 96 으로 가정해
+	//150%/200% 스케일 환경에서 1.5/2 배 확대된 채로 붙음. ppm = dpi × 39.3701 (m → inch).
+	HDC hdc_screen = ::GetDC(NULL);
+	const int dpi_x = ::GetDeviceCaps(hdc_screen, LOGPIXELSX);
+	const int dpi_y = ::GetDeviceCaps(hdc_screen, LOGPIXELSY);
+	::ReleaseDC(NULL, hdc_screen);
+	const LONG ppm_x = static_cast<LONG>(double(dpi_x) * 39.3701 + 0.5);
+	const LONG ppm_y = static_cast<LONG>(double(dpi_y) * 39.3701 + 0.5);
+
 	auto fill_bottom_up = [&](BYTE* dst)
 	{
 		for (int y = 0; y < h; ++y)
@@ -883,19 +893,21 @@ void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down
 	{
 		BYTE* mem = static_cast<BYTE*>(::GlobalLock(hg_v5));
 		BITMAPV5HEADER* bv5 = reinterpret_cast<BITMAPV5HEADER*>(mem);
-		bv5->bV5Size		= sizeof(BITMAPV5HEADER);
-		bv5->bV5Width		= w;
-		bv5->bV5Height		= h;
-		bv5->bV5Planes		= 1;
-		bv5->bV5BitCount	= 32;
-		bv5->bV5Compression	= BI_BITFIELDS;
-		bv5->bV5SizeImage	= pixel_size;
-		bv5->bV5RedMask		= 0x00FF0000;
-		bv5->bV5GreenMask	= 0x0000FF00;
-		bv5->bV5BlueMask	= 0x000000FF;
-		bv5->bV5AlphaMask	= 0xFF000000;
-		bv5->bV5CSType		= LCS_WINDOWS_COLOR_SPACE;
-		bv5->bV5Intent		= LCS_GM_GRAPHICS;
+		bv5->bV5Size			= sizeof(BITMAPV5HEADER);
+		bv5->bV5Width			= w;
+		bv5->bV5Height			= h;
+		bv5->bV5Planes			= 1;
+		bv5->bV5BitCount		= 32;
+		bv5->bV5Compression		= BI_BITFIELDS;
+		bv5->bV5SizeImage		= pixel_size;
+		bv5->bV5XPelsPerMeter	= ppm_x;
+		bv5->bV5YPelsPerMeter	= ppm_y;
+		bv5->bV5RedMask			= 0x00FF0000;
+		bv5->bV5GreenMask		= 0x0000FF00;
+		bv5->bV5BlueMask		= 0x000000FF;
+		bv5->bV5AlphaMask		= 0xFF000000;
+		bv5->bV5CSType			= LCS_WINDOWS_COLOR_SPACE;
+		bv5->bV5Intent			= LCS_GM_GRAPHICS;
 		fill_bottom_up(mem + sizeof(BITMAPV5HEADER));
 		::GlobalUnlock(hg_v5);
 	}
@@ -912,12 +924,14 @@ void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down
 		bih->biBitCount		= 32;
 		bih->biCompression	= BI_RGB;
 		bih->biSizeImage	= pixel_size;
+		bih->biXPelsPerMeter = ppm_x;
+		bih->biYPelsPerMeter = ppm_y;
 		fill_bottom_up(mem + sizeof(BITMAPINFOHEADER));
 		::GlobalUnlock(hg_dib);
 	}
 
 	//"PNG" 등록 포맷 — PowerPoint / Word 등이 alpha 채널 인식하는 가장 신뢰할 만한 경로.
-	HGLOBAL hg_png = encode_bgra_to_png_hglobal(bgra_top_down, w, h);
+	HGLOBAL hg_png = encode_bgra_to_png_hglobal(bgra_top_down, w, h, dpi_x, dpi_y);
 	const UINT cf_png = ::RegisterClipboardFormat(_T("PNG"));
 
 	if (::OpenClipboard(m_hWnd))
@@ -966,7 +980,7 @@ CSCDeskToolsDlg::HideFloating::~HideFloating()
 //BGRA top-down 픽셀을 PNG 로 인코딩해 HGLOBAL 반환. 클립보드 "PNG" 포맷용.
 //PowerPoint / Word 등 modern 앱은 등록 포맷 "PNG" 를 우선해서 alpha 보존.
 //성공 시 호출자가 SetClipboardData 로 ownership 이전 (실패 시 GlobalFree).
-static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h)
+static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h, int dpi_x, int dpi_y)
 {
 	HGLOBAL hg_out = NULL;
 	IWICImagingFactory* pFactory = NULL;
@@ -1000,6 +1014,11 @@ static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int 
 		goto cleanup;
 
 	hr = pFrame->SetSize(w, h);
+	if (FAILED(hr))
+		goto cleanup;
+	//PNG pHYs 청크 기록. PowerPoint 가 (픽셀수 ÷ DPI) 인치로 슬라이드 크기 계산.
+	//SetResolution 은 Initialize 이후, Commit 이전 어디서든 호출 가능.
+	hr = pFrame->SetResolution(double(dpi_x), double(dpi_y));
 	if (FAILED(hr))
 		goto cleanup;
 	{
