@@ -1148,20 +1148,26 @@ cleanup:
 }
 
 //Win11+ 라운드 코너 반경 추정. Win10/older 또는 명시적 DONOTROUND 면 0.
-//WS_CAPTION 체크는 안 함 — DWM 이 popup/tool 창도 라운드시키는 경우가 있어 너무 엄격하면 미스 발생.
-//사용자가 보기에 라운드인 창은 거의 모두 ROUND/DEFAULT 로 잡힘.
+//DEFAULT 는 "DWM 이 스타일 보고 결정" — 캡션/씩프레임 없는 borderless·popup 창엔
+//DWM 이 라운드를 적용 안 하므로 그 경우 0 반환. 명시적 ROUND/ROUNDSMALL 은 스타일 무관.
 static int probe_window_corner_radius(HWND hwnd)
 {
 	const DWORD kAttrCornerPref = 33;	//DWMWA_WINDOW_CORNER_PREFERENCE (Win11). Win10 에서는 E_INVALIDARG.
 	int pref = 0;
 	if (FAILED(::DwmGetWindowAttribute(hwnd, kAttrCornerPref, &pref, sizeof(pref))))
 		return 0;
-	const int kDoNotRound = 1, kRoundSmall = 3;
+	const int kDefault = 0, kDoNotRound = 1, kRound = 2, kRoundSmall = 3;
 	if (pref == kDoNotRound)
 		return 0;
+	if (pref == kDefault)
+	{
+		const LONG style = ::GetWindowLong(hwnd, GWL_STYLE);
+		if ((style & (WS_CAPTION | WS_THICKFRAME)) == 0)
+			return 0;	//borderless/popup → DWM 라운드 없음
+	}
 	if (pref == kRoundSmall)
 		return 4;
-	return 8;	//ROUND 또는 DEFAULT
+	return 8;	//ROUND 또는 DEFAULT(캡션 있는 표준 창)
 }
 
 //32bpp BGRA top-down 픽셀의 4모서리에 라운드 마스크 적용 (in-place, antialiased).
