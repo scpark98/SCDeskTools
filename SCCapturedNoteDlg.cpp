@@ -596,8 +596,8 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 		{
 			//파일 대화상자의 filter 드롭다운에서 포맷 선택. 새 포맷 추가는 filter 문자열만 확장하면 됨.
 			LPCTSTR filter =
-				_T("PNG 이미지 (*.png)|*.png|")
 				_T("JPEG 이미지 (*.jpg;*.jpeg)|*.jpg;*.jpeg|")
+				_T("PNG 이미지 (*.png)|*.png|")
 				_T("모든 파일 (*.*)|*.*||");
 
 			SYSTEMTIME st;
@@ -605,11 +605,11 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 
 			CString recent_folder = AfxGetApp()->GetProfileString(_T("settings"), _T("recent_folder"), get_exe_directory());
 			CString default_name;
-			default_name.Format(_T("%s\\sccapture_%04d%02d%02d_%02d%02d%02d.png"),
+			default_name.Format(_T("%s\\sccapture_%04d%02d%02d_%02d%02d%02d.jpg"),
 				recent_folder,
 				st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 
-			CFileDialog dlg(FALSE, _T("png"), default_name,
+			CFileDialog dlg(FALSE, _T("jpg"), default_name,
 				OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT, filter, this);
 
 			if (dlg.DoModal() != IDOK)
