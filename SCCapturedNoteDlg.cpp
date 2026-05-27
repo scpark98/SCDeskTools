@@ -806,7 +806,7 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 	if (m_img_w > 0 && m_img_h > 0)
 	{
 		WCHAR size_text[64];
-		swprintf_s(size_text, L"(%d x %d)", m_img_w, m_img_h);
+		swprintf_s(size_text, L"(%d x %d) (%.3f:1)", m_img_w, m_img_h, double(m_img_w) / double(m_img_h));
 		draw_text(d2dc, CRect(rc.left + margin, rc.top, rc.right, rc.bottom - margin), size_text,
 			_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
 			Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,

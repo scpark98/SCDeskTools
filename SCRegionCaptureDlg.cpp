@@ -331,8 +331,13 @@ void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		1.0f, DT_LEFT | DT_BOTTOM);
 
 	const int center_x = (l + r) / 2;
+	const int sw = rc_show.Width();
+	const int sh = rc_show.Height();
 	WCHAR text_size[64];
-	swprintf_s(text_size, L"%d x %d", rc_show.Width(), rc_show.Height());
+	if (sh > 0)
+		swprintf_s(text_size, L"%d x %d (%.3f:1)", sw, sh, double(sw) / double(sh));
+	else
+		swprintf_s(text_size, L"%d x %d", sw, sh);
 	draw_text(d2dc, CRect(l, t, r, b), text_size,
 		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
 		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
