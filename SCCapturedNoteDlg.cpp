@@ -171,9 +171,9 @@ BEGIN_MESSAGE_MAP(CSCCapturedNoteDlg, CDialog)
 	ON_WM_NCRBUTTONUP()
 	ON_WM_NCACTIVATE()
 	ON_WM_NCMOUSEMOVE()
-	ON_REGISTERED_MESSAGE(Message_CGdiButton, &CSCCapturedNoteDlg::on_message_CGdiButton)
-	ON_BN_CLICKED(id_button_close, &CSCCapturedNoteDlg::OnBnClickedCloseButton)
 	ON_WM_MOUSEMOVE()
+	ON_WM_LBUTTONDOWN()
+	ON_WM_LBUTTONUP()
 END_MESSAGE_MAP()
 
 CSCCapturedNoteDlg::CSCCapturedNoteDlg() : CDialog()
@@ -300,46 +300,12 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	m_img_dlg.create(this, 0, 0, rc_client.Width(), rc_client.Height());
 	m_img_dlg.set_image(&m_image);
 
-	//WS_CLIPSIBLINGS 없으면 m_img_dlg 가 D2D frame 그릴 때 형제인 m_button_close 영역까지
-	//덮어 그려 버튼이 가려진다 (버튼을 클릭하거나 mouse-enter 시점에만 자체 invalidate 로 다시 보임).
-	m_img_dlg.ModifyStyle(0, WS_CLIPSIBLINGS);
-
 	//post-paint 콜백 ? m_img_dlg 의 D2D 같은 frame 에 추가 오버레이 그림 (안티앨리어싱, z-order 충돌 없음).
 	//본문은 멤버 함수로 분리. 람다는 this 캡처하여 멤버 호출만 위임.
 	m_img_dlg.set_post_paint_callback(
 		[this](ID2D1DeviceContext* d2dc) { on_img_dlg_post_paint(d2dc); });
 
 	m_initialized = true;
-
-	//BS_OWNERDRAW 는 CGdiButton 이 PreSubclassWindow 에서 자체 추가. 외부 명시 불필요.
-	//(CGdiButton::create / PreSubclassWindow 가 외부 BS_OWNERDRAW 를 자동 정규화하지만 안 주는 게 정석.)
-	m_button_close.create(_T(""), WS_CHILD, CRect(0, 0, 21, 21), this, id_button_close);
-	m_button_close.ShowWindow(SW_SHOW);
-	//z-order 최상단으로 — 형제 m_img_dlg 위에 항상 그려지도록 강제.
-	m_button_close.SetWindowPos(&CWnd::wndTop, 0, 0, 0, 0,
-		SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-
-	//닫기 버튼 생성 및 설정.
-	//비트맵 배경 = m_img_dlg(CSCD2ImageDlg) 의 D2D clear color 와 동일.
-	//SCD2ImageDlg.cpp:169 에서 ColorF(0.125f, 0.125f, 0.125f) ≈ RGB(32,32,32) 으로 clear —
-	//round 코너 바깥이 letterbox 와 시각적으로 일치하도록 같은 값으로 채운다.
-	//비트맵 size = 컨트롤 size (21x21) — 마진 회색이 안 보이게.
-	CSize sz_button(21, 21);
-	CSCGdiplusBitmap close_btn_bmp(sz_button.cx, sz_button.cy, Gdiplus::Color(255, 32, 32, 32));
-	{
-		Gdiplus::Graphics g(close_btn_bmp);
-		g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-		draw_round_rect(&g, Gdiplus::Rect(0, 0, sz_button.cx, sz_button.cy),
-			Gdiplus::Color::Transparent, Gdiplus::Color(255, 232, 17, 35),
-			0, 5, 0, 0);
-		const int half = MIN(sz_button.cx, sz_button.cy) / 4;
-		const CPoint cp(sz_button.cx / 2, sz_button.cy / 2);
-		draw_line(g, cp.x - half, cp.y - half, cp.x + half, cp.y + half,
-			Gdiplus::Color::White, 2.0f, Gdiplus::DashStyleSolid, R2_COPYPEN, Gdiplus::LineCapRound);
-		draw_line(g, cp.x + half, cp.y - half, cp.x - half, cp.y + half,
-			Gdiplus::Color::White, 2.0f, Gdiplus::DashStyleSolid, R2_COPYPEN, Gdiplus::LineCapRound);
-	}
-	m_button_close.add_image(&close_btn_bmp);
 
 	ShowWindow(SW_SHOW);
 	SetForegroundWindow();
@@ -354,10 +320,16 @@ void CSCCapturedNoteDlg::OnSize(UINT nType, int cx, int cy)
 	{
 		//클라이언트 전체에 자식을 fit. 자식이 알아서 fit-to-ctrl 또는 zoom 모드에 맞춰 다시 그림.
 		m_img_dlg.MoveWindow(0, 0, cx, cy, TRUE);
-
-		CRect rbutton = make_rect(cx - m_button_close.width() - 3, 3, m_button_close.width(), m_button_close.height());
-		m_button_close.MoveWindow(rbutton);
 	}
+}
+
+CRect CSCCapturedNoteDlg::get_close_button_rect() const
+{
+	CRect rc;
+	GetClientRect(rc);
+	const int sz = 21;
+	const int margin = 3;
+	return CRect(rc.right - sz - margin, margin, rc.right - margin, margin + sz);
 }
 
 LRESULT CSCCapturedNoteDlg::OnNcHitTest(CPoint point)
@@ -382,7 +354,14 @@ LRESULT CSCCapturedNoteDlg::OnNcHitTest(CPoint point)
 	if (T) return HTTOP;
 	if (B) return HTBOTTOM;
 
-	//(2) 클라이언트 영역.
+	//(2) 우상단 닫기 버튼 영역 — pan/move 보다 우선해서 HTCLIENT 로 라우팅.
+	//OnMouseMove / OnLButton* 가 호버 시각화 + 클릭 처리를 담당.
+	CPoint pt_client(point);
+	ScreenToClient(&pt_client);
+	if (get_close_button_rect().PtInRect(pt_client))
+		return HTCLIENT;
+
+	//(3) 클라이언트 영역.
 	//Shift 누른 상태면 HTCLIENT 로 자식 (m_img_dlg) 이 받아 pan.
 	//그 외에는 HTCAPTION 반환 → Windows DefWindowProc 가 modal move loop 자동 처리.
 	//HTCAPTION 분기는 ASee 가 검증한 가장 신뢰성 높은 창 이동 경로.
@@ -792,13 +771,34 @@ BOOL CSCCapturedNoteDlg::OnNcActivate(BOOL bActive)
 	return CDialog::OnNcActivate(bActive);
 }
 
-void CSCCapturedNoteDlg::OnBnClickedCloseButton()
+void CSCCapturedNoteDlg::OnLButtonDown(UINT nFlags, CPoint point)
 {
-	//PostMessage 인 이유: CGdiButton::OnLButtonUp 이 BN_CLICKED 발송 후 (line 2011) 추가로
-	//CGdiButtonMessage 발송 (line 2013) + parent->m_hWnd 등 접근. 여기서 동기 DestroyWindow 시
-	//note dlg 가 즉시 self-delete → CGdiButton 의 잔여 코드가 freed parent 접근 → use-after-free.
-	//PostMessage 로 destroy 를 다음 메시지 사이클로 미룸 → CGdiButton 의 OnLButtonUp 안전하게 종료.
-	PostMessage(WM_COMMAND, IDCANCEL);
+	//우상단 닫기 버튼이 HTCLIENT 로 라우팅되어 여기로 옴.
+	if (get_close_button_rect().PtInRect(point))
+	{
+		m_close_btn_pressed = true;
+		SetCapture();
+		m_img_dlg.Invalidate(FALSE);
+		return;
+	}
+	CDialog::OnLButtonDown(nFlags, point);
+}
+
+void CSCCapturedNoteDlg::OnLButtonUp(UINT nFlags, CPoint point)
+{
+	if (m_close_btn_pressed)
+	{
+		ReleaseCapture();
+		const bool over = get_close_button_rect().PtInRect(point);
+		m_close_btn_pressed = false;
+		m_img_dlg.Invalidate(FALSE);
+		//PostMessage 로 destroy 를 다음 메시지 사이클로 미룸 — OnLButtonUp 콜스택 안에서
+		//self-delete 되면 CDialog::OnLButtonUp 복귀 시 freed this 접근 위험.
+		if (over)
+			PostMessage(WM_CLOSE);
+		return;
+	}
+	CDialog::OnLButtonUp(nFlags, point);
 }
 
 void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
@@ -821,33 +821,50 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 			1.0f, DT_LEFT | DT_BOTTOM);
 	}
 
-	if (m_hover_pixel.X < 0.0f || m_hover_pixel.Y < 0.0f)
-		return;
+	if (m_hover_pixel.X >= 0.0f && m_hover_pixel.Y >= 0.0f)
+	{
+		WCHAR text[64];
+		swprintf_s(text, L"(%d, %d)", int(m_hover_pixel.X), int(m_hover_pixel.Y));
 
-	WCHAR text[64];
-	swprintf_s(text, L"(%d, %d)", int(m_hover_pixel.X), int(m_hover_pixel.Y));
+		draw_text(d2dc, CRect(rc.left, rc.top, rc.right - margin, rc.bottom - margin), text,
+			_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+			Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,
+			1.0f, DT_RIGHT | DT_BOTTOM);
+	}
 
-	draw_text(d2dc, CRect(rc.left, rc.top, rc.right - margin, rc.bottom - margin), text,
-		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-		Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,
-		1.0f, DT_RIGHT | DT_BOTTOM);
+	//우상단 닫기 버튼 — 호버 시점에만 D2D 로 직접 그림. round 코너 바깥은 그리지 않아
+	//이미지 / letterbox 가 자연스럽게 비치므로 배경색 매칭 문제 없음.
+	if (m_close_btn_hover)
+	{
+		CRect rb = get_close_button_rect();
+		const Gdiplus::Color cr_fill = m_close_btn_pressed
+			? Gdiplus::Color(255, 180,  0,  0)	//pressed: 약간 어두운 빨강
+			: Gdiplus::Color(255, 232, 17, 35);	//hover:   기본 빨강
+		draw_rect(d2dc, rb, Gdiplus::Color::Transparent, cr_fill,
+			0.0f, 0.0f, 4.0f, 0.0f, 0.0f);
+
+		//홀수 폭(21) rect 의 진짜 중심은 10.5 — 정수 cp 로 그리면 0.5px 어긋남. float 좌표 사용.
+		const float cx	 = rb.left + rb.Width()  * 0.5f;
+		const float cy	 = rb.top  + rb.Height() * 0.5f;
+		const float half = MIN(rb.Width(), rb.Height()) * 0.25f;
+		draw_line(d2dc, cx - half, cy - half, cx + half, cy + half, Gdiplus::Color::White, 2.0f);
+		draw_line(d2dc, cx + half, cy - half, cx - half, cy + half, Gdiplus::Color::White, 2.0f);
+	}
 }
 
 void CSCCapturedNoteDlg::OnNcMouseMove(UINT nHitTest, CPoint point)
 {
-	//point 는 screen 좌표. OnNcHitTest 가 client 영역에 대해 HTCAPTION 을 리턴하므로
-	//client 위 마우스 이동도 모두 여기로 옴 (resize 보더의 HTTOP/HTRIGHT 등도 포함).
+	//point 는 screen 좌표. OnNcHitTest 가 client 영역(닫기 버튼 제외)에 대해 HTCAPTION 을
+	//리턴하므로 client 위 마우스 이동도 거의 여기로 옴 (resize 보더의 HTTOP/HTRIGHT 등 포함).
 	TRACE(_T("nc mouse move. hit=%u screen=(%d, %d)\n"), nHitTest, point.x, point.y);
-	//m_pt_mouse = point;
-	CRect rc;
-	GetClientRect(rc);
 	ScreenToClient(&point);
 
-	//버튼 (20x20 + margin 2 = 우상단 24x24 영역) 위에 마우스가 있을 때만 표시.
-	if (point.x > rc.Width() - 24 && point.y < 24)
-		m_button_close.ShowWindow(SW_SHOW);
-	else
-		m_button_close.ShowWindow(SW_HIDE);
+	//닫기 버튼 영역을 벗어나 NC 로 진입 — 호버 해제.
+	if (m_close_btn_hover)
+	{
+		m_close_btn_hover = false;
+		m_img_dlg.Invalidate(FALSE);
+	}
 
 	//호버 픽셀 좌표 갱신 — m_img_dlg client 가 NoteDlg client 와 동일 (0,0 부터 전체 차지).
 	if (m_img_w > 0 && m_img_h > 0)
@@ -869,24 +886,16 @@ void CSCCapturedNoteDlg::OnNcMouseMove(UINT nHitTest, CPoint point)
 	CDialog::OnNcMouseMove(nHitTest, point);
 }
 
-LRESULT CSCCapturedNoteDlg::on_message_CGdiButton(WPARAM wParam, LPARAM lParam)
-{
-	CGdiButtonMessage* msg = (CGdiButtonMessage*)wParam;
-	trace(msg->message);
-	if (msg->pThis == &m_button_close)
-	{
-		switch (msg->message)
-		{
-		case BN_CLICKED:
-			DestroyWindow();
-			break;
-		}
-	}
-
-	return 0;
-}
-
 void CSCCapturedNoteDlg::OnMouseMove(UINT nFlags, CPoint point)
 {
+	//OnNcHitTest 가 닫기 버튼 영역에 대해 HTCLIENT 를 리턴하므로 그 영역의 이동이 여기로 옴.
+	//호버 진입은 여기서, 호버 해제는 OnNcMouseMove 에서 — 영역을 벗어나는 순간 HTCAPTION 으로
+	//바뀌어 NC 경로로 진입하기 때문.
+	const bool over = get_close_button_rect().PtInRect(point);
+	if (over != m_close_btn_hover)
+	{
+		m_close_btn_hover = over;
+		m_img_dlg.Invalidate(FALSE);
+	}
 	CDialog::OnMouseMove(nFlags, point);
 }

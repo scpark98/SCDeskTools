@@ -18,7 +18,6 @@
 
 #include <afxwin.h>
 #include <vector>
-#include "Common/CButton/GdiButton/GdiButton.h"
 #include "Common/directx/CSCD2Context/SCD2Context.h"
 #include "Common/directx/CSCD2Image/SCD2Image.h"
 #include "Common/CDialog/SCD2ImageDlg/SCD2ImageDlg.h"
@@ -41,8 +40,6 @@ public:
 	//반환값:         성공 시 다이얼로그 포인터 (소유권은 다이얼로그 자신, self-delete). NULL 이면 실패.
 	static CSCCapturedNoteDlg* spawn(const BYTE* bgra_top_down, int w, int h, const POINT* pos_screen = NULL);
 
-	LRESULT			on_message_CGdiButton(WPARAM wParam, LPARAM lParam);
-
 private:
 	enum
 	{
@@ -53,13 +50,11 @@ private:
 		cmd_close = 4,
 		cmd_save = 5,
 		cmd_gradient_edge = 6,
-		id_button_close = 1001,	//우상단 닫기 버튼 (CGdiButton) 컨트롤 ID
 	};
 
 	CSCD2Context	m_d2;
 	CSCD2Image		m_image;
 	CSCD2ImageDlg	m_img_dlg;	//ASee 와 동일 패턴 — derived 없이 직접 사용. enable_pan 만 켬.
-	CGdiButton		m_button_close;
 
 	CPoint			m_pt_mouse;
 
@@ -67,6 +62,11 @@ private:
 	int				m_img_h = 0;
 	bool			m_initialized = false;
 	BYTE			m_alpha = 255;	//Ctrl+wheel 로 조정. 64 ~ 255 범위 (완전 투명 방지).
+
+	//우상단 닫기 버튼 — child window 없이 m_img_dlg 의 post_paint 콜백에서 D2D 로 직접 그림.
+	//배경 투명 문제 회피: round 코너 바깥은 그냥 안 그려 이미지/letterbox 가 자연스럽게 비침.
+	bool			m_close_btn_hover = false;	//마우스가 버튼 영역 위 — 호버 시점에만 가시화
+	bool			m_close_btn_pressed = false;	//LButtonDown 으로 시작된 클릭 진행 중
 
 	//원본 BGRA 픽셀 보관본. 반복 가능한 효과 (gradient edge 등) 적용 시 매번 reload.
 	//m_image 의 m_data 와 별개 — m_image 는 D2D 비트맵 캐시이므로 픽셀 수정 후 load() 다시 호출 필요.
@@ -81,6 +81,7 @@ private:
 	void			show_context_menu(CPoint pt_screen);
 	void			execute_cmd(int cmd);	//메뉴 항목과 단축키가 공유하는 명령 디스패처
 	void			on_img_dlg_post_paint(ID2D1DeviceContext* d2dc);	//m_img_dlg 의 D2D frame 안에서 추가 오버레이 그리기
+	CRect			get_close_button_rect() const;	//닫기 버튼 client 좌표 rect (OnSize / OnNcHitTest / paint / click 공유)
 
 	afx_msg void	OnSize(UINT nType, int cx, int cy);
 	afx_msg LRESULT	OnNcHitTest(CPoint point);
@@ -96,6 +97,7 @@ private:
 public:
 	afx_msg BOOL OnNcActivate(BOOL bActive);
 	afx_msg void OnNcMouseMove(UINT nHitTest, CPoint point);
-	afx_msg void OnBnClickedCloseButton();
 	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
+	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
+	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
 };
