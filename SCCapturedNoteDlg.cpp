@@ -320,10 +320,18 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 		SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
 	//닫기 버튼 생성 및 설정.
-	CSize sz_button(19, 19);
-	CSCGdiplusBitmap close_btn_bmp(sz_button.cx, sz_button.cy, Gdiplus::Color(255, 232, 17, 35));
+	//비트맵 배경 = m_img_dlg(CSCD2ImageDlg) 의 D2D clear color 와 동일.
+	//SCD2ImageDlg.cpp:169 에서 ColorF(0.125f, 0.125f, 0.125f) ≈ RGB(32,32,32) 으로 clear —
+	//round 코너 바깥이 letterbox 와 시각적으로 일치하도록 같은 값으로 채운다.
+	//비트맵 size = 컨트롤 size (21x21) — 마진 회색이 안 보이게.
+	CSize sz_button(21, 21);
+	CSCGdiplusBitmap close_btn_bmp(sz_button.cx, sz_button.cy, Gdiplus::Color(255, 32, 32, 32));
 	{
 		Gdiplus::Graphics g(close_btn_bmp);
+		g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+		draw_round_rect(&g, Gdiplus::Rect(0, 0, sz_button.cx, sz_button.cy),
+			Gdiplus::Color::Transparent, Gdiplus::Color(255, 232, 17, 35),
+			0, 5, 0, 0);
 		const int half = MIN(sz_button.cx, sz_button.cy) / 4;
 		const CPoint cp(sz_button.cx / 2, sz_button.cy / 2);
 		draw_line(g, cp.x - half, cp.y - half, cp.x + half, cp.y + half,
