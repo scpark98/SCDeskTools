@@ -9,6 +9,7 @@
 #include "afxdialogex.h"
 
 #include <vector>
+#include <algorithm>
 
 #include "Common/Functions.h"
 #include "Common/CDialog/CSCColorPicker/SCDropperDlg.h"
@@ -24,6 +25,9 @@
 
 #include <wincodec.h>
 #pragma comment(lib, "windowscodecs.lib")
+
+#include <shellscalingapi.h>
+#pragma comment(lib, "shcore.lib")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -1147,6 +1151,20 @@ cleanup:
 	return ok;
 }
 
+//20260727 by claude. 대상 창이 올라가 있는 모니터의 DPI.
+//GetDpiForWindow 가 아니라 모니터 DPI 를 쓰는 이유: 전자는 대상 창의 DPI 인식 수준을 따라가
+//DPI-unaware 앱이면 175% 모니터 위에서도 96 을 돌려준다. DWM 이 그리는 프레임(테두리·라운드 호)은
+//대상 앱의 인식 수준과 무관하게 모니터 물리 픽셀 기준이다.
+static UINT monitor_dpi_for_window(HWND hwnd)
+{
+	UINT dpi_x = 96;
+	UINT dpi_y = 96;
+	HMONITOR monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+	if (FAILED(::GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpi_x, &dpi_y)))
+		return 96;
+	return dpi_x;
+}
+
 //Win11+ 라운드 코너 반경 추정. Win10/older 또는 명시적 DONOTROUND 면 0.
 //DEFAULT 는 "DWM 이 스타일 보고 결정" — 캡션/씩프레임 없는 borderless·popup 창엔
 //DWM 이 라운드를 적용 안 하므로 그 경우 0 반환. 명시적 ROUND/ROUNDSMALL 은 스타일 무관.
@@ -1165,9 +1183,13 @@ static int probe_window_corner_radius(HWND hwnd)
 		if ((style & (WS_CAPTION | WS_THICKFRAME)) == 0)
 			return 0;	//borderless/popup → DWM 라운드 없음
 	}
+	//20260727 by claude. Win11 라운드 반경은 논리 8px(작은 코너 4px) 이고, 이 앱은 PMv2 라
+	//캡처 좌표가 물리 픽셀이다. 스케일하지 않으면 175% 에서 실제 호보다 작게 잘려 코너가 어긋난다.
+	const UINT dpi = monitor_dpi_for_window(hwnd);
+
 	if (pref == kRoundSmall)
-		return 4;
-	return 8;	//ROUND 또는 DEFAULT(캡션 있는 표준 창)
+		return int(4 * dpi / 96);
+	return int(8 * dpi / 96);	//ROUND 또는 DEFAULT(캡션 있는 표준 창)
 }
 
 //32bpp BGRA top-down 픽셀의 4모서리에 라운드 마스크 적용 (in-place, antialiased).
@@ -1213,6 +1235,326 @@ static void apply_rounded_corner_alpha(BYTE* px, int w, int h, int radius)
 	process(w - radius,   0,            w - radius, radius);		//TR
 	process(0,            h - radius,   radius,     h - radius);	//BL
 	process(w - radius,   h - radius,   w - radius, h - radius);	//BR
+}
+
+//20260727 by claude. 링(사각 테두리 한 겹) 의 픽셀 색을 모은다. 라운드 코너 구간은 호 AA 값이
+//섞여 판정을 흐리므로 corner_skip 만큼 양 끝을 제외.
+static void collect_ring_colors(const BYTE* px, int w, int h, int ring, int corner_skip, std::vector<DWORD>& out)
+{
+	out.clear();
+
+	const int x0 = ring;
+	const int x1 = w - 1 - ring;
+	const int y0 = ring;
+	const int y1 = h - 1 - ring;
+	if (x1 - x0 < 2 * corner_skip || y1 - y0 < 2 * corner_skip)
+		return;
+
+	auto color_at = [&](int x, int y) -> DWORD
+	{
+		const BYTE* p = px + (size_t(y) * size_t(w) + size_t(x)) * 4;
+		return DWORD(p[0]) | (DWORD(p[1]) << 8) | (DWORD(p[2]) << 16);
+	};
+
+	for (int x = x0 + corner_skip; x <= x1 - corner_skip; ++x)
+	{
+		out.push_back(color_at(x, y0));
+		out.push_back(color_at(x, y1));
+	}
+	for (int y = y0 + corner_skip; y <= y1 - corner_skip; ++y)
+	{
+		out.push_back(color_at(x0, y));
+		out.push_back(color_at(x1, y));
+	}
+}
+
+//20260727 by claude. 링 픽셀과 "그 위치에서 창 바깥 배경" 을 짝지어 모은다.
+//바깥 배경은 프리즈 DIB(가상 데스크톱 전체) 에서 창 rect 바깥 2px 지점을 읽는다.
+//1px 이 아니라 2px 인 이유: 변에 따라 rect 경계 픽셀에 테두리 AA 가 걸쳐 있는 경우가 있다.
+struct BorderSample
+{
+	BYTE	obs[3];
+	BYTE	bg[3];
+};
+
+static void collect_border_samples(const BYTE* px, int w, int h, int ring, int corner_skip,
+	const BYTE* frozen, int frozen_w, int frozen_h, int ox, int oy,
+	std::vector<BorderSample>& out)
+{
+	out.clear();
+
+	const int out_dist = 2;
+
+	const int x0 = ring;
+	const int x1 = w - 1 - ring;
+	const int y0 = ring;
+	const int y1 = h - 1 - ring;
+	if (x1 - x0 < 2 * corner_skip || y1 - y0 < 2 * corner_skip)
+		return;
+
+	auto push = [&](int x, int y, int bx, int by)
+	{
+		if (bx < 0 || by < 0 || bx >= frozen_w || by >= frozen_h)
+			return;
+
+		const BYTE* p = px + (size_t(y) * size_t(w) + size_t(x)) * 4;
+		const BYTE* q = frozen + (size_t(by) * size_t(frozen_w) + size_t(bx)) * 4;
+
+		BorderSample s;
+		s.obs[0] = p[0];
+		s.obs[1] = p[1];
+		s.obs[2] = p[2];
+		s.bg[0] = q[0];
+		s.bg[1] = q[1];
+		s.bg[2] = q[2];
+		out.push_back(s);
+	};
+
+	for (int x = x0 + corner_skip; x <= x1 - corner_skip; ++x)
+	{
+		push(x, y0, ox + x, oy - out_dist);
+		push(x, y1, ox + x, oy + h - 1 + out_dist);
+	}
+	for (int y = y0 + corner_skip; y <= y1 - corner_skip; ++y)
+	{
+		push(x0, y, ox - out_dist, oy + y);
+		push(x1, y, ox + w - 1 + out_dist, oy + y);
+	}
+}
+
+//20260727 by claude. 관측 = C*a + 배경*(1-a) 를 배경에 대한 1차식으로 보면 기울기 = (1-a),
+//절편 = C*a 이므로 채널별 최소제곱으로 둘 다 얻는다.
+//
+//반환하는 값은 순수 테두리 색 C 가 아니라 "흰 배경 위에 놓였을 때의 색" = C*a + 255*(1-a) 다.
+//DWM 테두리는 반투명이라 흰 배경에서는 연하게 보이는데(실측: 탐색기 검정 위 47, 흰색 위 177),
+//캡처는 대개 흰 문서에 붙이므로 그 모습이 화면에서 보던 인상과 가장 가깝다.
+//절편 + 255*기울기 로 바로 나오므로 (1-기울기) 로 나누지 않아 오차 증폭도 없다.
+//
+//배경이 균일해도 대개 성립한다 — DWM 그림자가 변마다 다르게 깔려(실측: 흰 배경에서 상 239 /
+//좌우 219 / 하 201) 네 변이 서로 다른 실효 배경을 갖기 때문이다.
+//
+//예외는 검은 배경이다. 그림자가 검정 위에 깔려도 여전히 검정이라 배경 변화가 0 이고 기울기를
+//구할 수 없다. 이때는 실측한 DWM 표준 투명도를 상수로 가정한다(1-a = 0.6; 실측 0.63 / 0.53).
+//대상 창이 불투명 테두리를 쓴다면 이 가정이 틀려 실제보다 밝게 나오지만, 배경이 균일한 상황에서는
+//관측값만으로 반투명/불투명을 구분할 방법이 없다.
+static bool solve_border_color(const std::vector<BorderSample>& v, BYTE out_bgr[3])
+{
+	if (v.size() < 32)
+		return false;
+
+	const double n = double(v.size());
+
+	for (int ch = 0; ch < 3; ++ch)
+	{
+		double sx = 0.0;
+		double sy = 0.0;
+		for (const BorderSample& s : v)
+		{
+			sx += double(s.bg[ch]);
+			sy += double(s.obs[ch]);
+		}
+		const double mx = sx / n;
+		const double my = sy / n;
+
+		double sxx = 0.0;
+		double sxy = 0.0;
+		for (const BorderSample& s : v)
+		{
+			const double dx = double(s.bg[ch]) - mx;
+			sxx += dx * dx;
+			sxy += dx * (double(s.obs[ch]) - my);
+		}
+
+		//배경 표준편차 4 미만이면 기울기가 잡음에 휘둘린다 → 실측 상수로 대체.
+		const double default_slope = 0.6;
+		double slope = default_slope;
+		if (sxx / n >= 16.0)
+		{
+			slope = sxy / sxx;
+			if (slope < 0.0)
+				slope = 0.0;
+			if (slope > 1.0)
+				slope = 1.0;
+		}
+
+		double c = (my - slope * mx) + 255.0 * slope;
+		if (c < 0.0)
+			c = 0.0;
+		if (c > 255.0)
+			c = 255.0;
+
+		out_bgr[ch] = BYTE(c + 0.5);
+	}
+	return true;
+}
+
+//20260727 by claude. 링의 채널별 중앙값. 평균이 아니라 중앙값인 이유는 창이 어두운 물체나
+//밝은 창 위에 일부만 걸쳐 있을 때 그 구간이 평균을 끌고 가기 때문.
+static void ring_median_color(const std::vector<DWORD>& v, BYTE out_bgr[3])
+{
+	std::vector<BYTE> ch(v.size());
+	for (int c = 0; c < 3; ++c)
+	{
+		const int shift = c * 8;
+		for (size_t i = 0; i < v.size(); ++i)
+			ch[i] = BYTE((v[i] >> shift) & 0xFF);
+
+		const size_t mid = ch.size() / 2;
+		std::nth_element(ch.begin(), ch.begin() + mid, ch.end());
+		out_bgr[c] = ch[mid];
+	}
+}
+
+//20260727 by claude. 화면 BitBlt 로 읽은 창 가장자리에는 DWM 이 반투명으로 그린 테두리가
+//"테두리색 * a + 뒤 배경 * (1-a)" 형태로 이미 합성돼 들어온다. 그 링을 실제 테두리 색으로 덮는다.
+//
+//오염 두께는 모니터 배율과 대상 앱의 DPI 정책에 따라 달라지므로(실측: 100%=1px, 175%=2px)
+//상수로 두지 않고 픽셀에서 판정한다. 판정 기준 = 링 안의 "서로 다른 색 비율" —
+//실측상 오염 링 25~92%, 창 콘텐츠 링 0.5~6%.
+//
+//칠할 색은 배경을 소거한 뒤 흰 배경 기준으로 다시 합성한 값이다. 배경이 어떤 색이었든 같은 창이면
+//같은 색이 나오므로 캡처마다 테두리 색이 달라 보이는 문제가 사라진다.
+//추정에 실패하면(배경 정보 없음 등) 링 중앙값으로 폴백한다 — 배경에 따라 변하지만 노이즈는 없다.
+//
+//두께는 호출자가 모니터 DPI 로 계산해 넘긴다. 링의 색 산포로 판정하던 방식은 폐기했다 —
+//배경이 단색이면 오염된 링도 균일해서 "오염 아님" 으로 잘못 판정한다(실측: 단색 배경 캡처에서
+//보정이 통째로 건너뛰어졌다). DWM 테두리는 논리 1px 이므로 배율에 비례한다(100%=1, 175%=2).
+static void repair_dwm_border(BYTE* px, int w, int h, int corner_radius, int thickness,
+	const BYTE* frozen, int frozen_w, int frozen_h, int ox, int oy)
+{
+	const int max_rings = 4;
+	const int corner_skip = corner_radius + 4;
+
+	if (thickness < 1)
+		thickness = 1;
+	if (thickness > max_rings)
+		thickness = max_rings;
+
+	std::vector<DWORD> ring;
+	BYTE ring_bgr[max_rings][3] = {};
+
+	//가장 안쪽 오염 링에서 색을 구한다. 바깥 링일수록 배경 비중이 커서 추정이 불안정하다.
+	//성공하면 모든 링을 그 한 색으로 통일한다 — 링마다 다른 색을 쓰면 배경 농담이 그대로 남는다.
+	BYTE solved_bgr[3] = {};
+	std::vector<BorderSample> samples;
+	bool solved = false;
+	if (frozen)
+	{
+		for (int k = thickness - 1; k >= 0 && !solved; --k)
+		{
+			collect_border_samples(px, w, h, k, corner_skip, frozen, frozen_w, frozen_h, ox, oy, samples);
+			solved = solve_border_color(samples, solved_bgr);
+		}
+	}
+
+	for (int k = 0; k < thickness; ++k)
+	{
+		if (solved)
+		{
+			ring_bgr[k][0] = solved_bgr[0];
+			ring_bgr[k][1] = solved_bgr[1];
+			ring_bgr[k][2] = solved_bgr[2];
+			continue;
+		}
+
+		collect_ring_colors(px, w, h, k, corner_skip, ring);
+		if (ring.empty())
+			return;
+
+		ring_median_color(ring, ring_bgr[k]);
+	}
+
+	//20260727 by claude. 흰 배경 기준으로 합성한 값이 눈에는 살짝 밝아 보여 32 만큼 낮춘다.
+	const int darken = 32;
+	for (int k = 0; k < thickness; ++k)
+	{
+		for (int c = 0; c < 3; ++c)
+		{
+			const int v = int(ring_bgr[k][c]) - darken;
+			ring_bgr[k][c] = BYTE(v < 0 ? 0 : v);
+		}
+	}
+
+	auto put = [&](int x, int y, int k)
+	{
+		BYTE* p = px + (size_t(y) * size_t(w) + size_t(x)) * 4;
+		p[0] = ring_bgr[k][0];
+		p[1] = ring_bgr[k][1];
+		p[2] = ring_bgr[k][2];
+		p[3] = 0xFF;
+	};
+
+	//직선 구간. 코너는 사각 링으로 덮으면 호 안쪽에 배경 섞인 AA 픽셀이 남으므로 여기서 제외한다.
+	for (int k = 0; k < thickness; ++k)
+	{
+		for (int x = corner_radius; x <= w - 1 - corner_radius; ++x)
+		{
+			put(x, k, k);
+			put(x, h - 1 - k, k);
+		}
+		for (int y = corner_radius; y <= h - 1 - corner_radius; ++y)
+		{
+			put(k, y, k);
+			put(w - 1 - k, y, k);
+		}
+	}
+
+	if (corner_radius <= 0)
+		return;
+
+	//코너는 호를 따라 칠한다. 중심에서의 거리로 링 번호를 정하므로 직선 구간과 두께가 이어진다.
+	//호 바깥(k < 0) 은 손대지 않는다 — 뒤이어 apply_rounded_corner_alpha 가 알파 0 으로 잘라낸다.
+	//
+	//테두리 안쪽으로는 DWM 이 창 내용을 호 모양으로 잘라내며 만든 AA 띠가 이어진다. 그 픽셀들도
+	//배경과 섞여 있어(실측: 검은 배경에서 139/175/212, 흰 배경에서는 창 색과 비슷해 안 보임)
+	//같은 반경 방향의 안쪽 픽셀 색으로 메운다. 직선 변에는 이 띠가 없다.
+	const int aa_band = 2 * thickness + 1;
+	const double r_out = double(corner_radius);
+	const double r_in = r_out - double(thickness);
+	const double sample_dist = r_in - double(aa_band) - 0.5;
+
+	auto paint_corner = [&](int x0, int y0, double cx, double cy)
+	{
+		for (int y = y0; y < y0 + corner_radius; ++y)
+		{
+			for (int x = x0; x < x0 + corner_radius; ++x)
+			{
+				const double dx = double(x) + 0.5 - cx;
+				const double dy = double(y) + 0.5 - cy;
+				const double dist = sqrt(dx * dx + dy * dy);
+
+				//호 바깥은 손대지 않는다. 알파 마스킹이 뒤이어 잘라낸다.
+				if (dist > r_out + 0.5)
+					continue;
+				//AA 띠보다 안쪽은 온전한 창 내용이다.
+				if (dist < sample_dist || dist < 1.0 || sample_dist <= 0.0)
+					continue;
+
+				const int sx = int(cx + dx / dist * sample_dist);
+				const int sy = int(cy + dy / dist * sample_dist);
+				if (sx < 0 || sy < 0 || sx >= w || sy >= h)
+					continue;
+
+				//안쪽 경계에서 창 내용 ↔ 테두리를 1px 폭으로 선형 혼합해 계단을 없앤다.
+				//바깥 경계의 부드러움은 apply_rounded_corner_alpha 의 커버리지 알파가 담당한다.
+				double f = dist - r_in + 0.5;
+				if (f < 0.0)
+					f = 0.0;
+				if (f > 1.0)
+					f = 1.0;
+
+				const BYTE* s = px + (size_t(sy) * size_t(w) + size_t(sx)) * 4;
+				BYTE* d = px + (size_t(y) * size_t(w) + size_t(x)) * 4;
+				for (int c = 0; c < 3; ++c)
+					d[c] = BYTE(double(s[c]) * (1.0 - f) + double(ring_bgr[0][c]) * f + 0.5);
+				d[3] = 0xFF;
+			}
+		}
+	};
+	paint_corner(0,                0,                double(corner_radius),     double(corner_radius));
+	paint_corner(w - corner_radius, 0,               double(w - corner_radius), double(corner_radius));
+	paint_corner(0,                h - corner_radius, double(corner_radius),    double(h - corner_radius));
+	paint_corner(w - corner_radius, h - corner_radius, double(w - corner_radius), double(h - corner_radius));
 }
 
 void CSCDeskToolsDlg::capture_screen_rect(const CRect& rc_screen)
@@ -1360,15 +1702,38 @@ void CSCDeskToolsDlg::OnToolCaptureWindow()
 		}
 	}
 
-	//Win11 라운드 코너 마스킹: 4 모서리 호 바깥 alpha=0. PNG 저장/D2D 노트 표시 시 투명.
 	if (hbmp_for_clip)
 	{
-		const int radius = probe_window_corner_radius(hwnd);
-		if (radius > 0)
+		DIBSECTION ds = {};
+		if (::GetObject(hbmp_for_clip, sizeof(ds), &ds) == sizeof(ds) && ds.dsBm.bmBits)
 		{
-			DIBSECTION ds = {};
-			if (::GetObject(hbmp_for_clip, sizeof(ds), &ds) == sizeof(ds) && ds.dsBm.bmBits)
-				apply_rounded_corner_alpha(static_cast<BYTE*>(ds.dsBm.bmBits), w_clip, h_clip, radius);
+			BYTE* bits = static_cast<BYTE*>(ds.dsBm.bmBits);
+			const int radius = probe_window_corner_radius(hwnd);
+
+			//20260727 by claude. DWM 이 프레임을 그리는 창에만 테두리 보정을 건다. 자체 그린
+			//borderless popup 은 최외곽 링이 창 자신의 그림이라 덮으면 실제 콘텐츠가 손상된다.
+			const LONG style = ::GetWindowLong(hwnd, GWL_STYLE);
+			if (radius > 0 || (style & (WS_CAPTION | WS_THICKFRAME)))
+			{
+				//순수 테두리 색을 구하려면 창 바깥 배경이 필요하다. 프리즈 DIB 는 가상 데스크톱
+				//전체라 창 바깥이 그대로 들어 있다.
+				DIBSECTION ds_frozen = {};
+				const BYTE* frozen = NULL;
+				if (::GetObject(dlg.get_frozen_hbitmap(), sizeof(ds_frozen), &ds_frozen) == sizeof(ds_frozen))
+					frozen = static_cast<const BYTE*>(ds_frozen.dsBm.bmBits);
+
+				//DWM 테두리는 논리 1px — 물리 픽셀 두께는 모니터 배율에 비례 (100%=1, 175%=2).
+				const int thickness = int((monitor_dpi_for_window(hwnd) + 48) / 96);
+
+				repair_dwm_border(bits, w_clip, h_clip, radius, thickness,
+					frozen, rc_virtual.Width(), rc_virtual.Height(),
+					rc_highlight.left - rc_virtual.left,
+					rc_highlight.top  - rc_virtual.top);
+			}
+
+			//Win11 라운드 코너 마스킹: 4 모서리 호 바깥 alpha=0. PNG 저장/D2D 노트 표시 시 투명.
+			if (radius > 0)
+				apply_rounded_corner_alpha(bits, w_clip, h_clip, radius);
 		}
 	}
 

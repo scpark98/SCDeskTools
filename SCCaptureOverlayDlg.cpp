@@ -30,11 +30,6 @@ namespace
 		if (FAILED(::DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out, sizeof(RECT))))
 			return ::GetWindowRect(hwnd, out) != FALSE;
 
-		//20260721 by claude. DWMWA_EXTENDED_FRAME_BOUNDS 가 caption 없는 popup(커스텀 그린 창)의
-		//focus/shadow 1px 을 남기는 경우가 있어, WS_CAPTION 이 없는 창에 한해 1px inward shrink.
-		LONG style = ::GetWindowLong(hwnd, GWL_STYLE);
-		if (!(style & WS_CAPTION))
-			::InflateRect(out, -1, -1);
 		return true;
 	}
 
