@@ -1511,7 +1511,14 @@ static void repair_dwm_border(BYTE* px, int w, int h, int corner_radius, int thi
 	const int aa_band = 2 * thickness + 1;
 	const double r_out = double(corner_radius);
 	const double r_in = r_out - double(thickness);
-	const double sample_dist = r_in - double(aa_band) - 0.5;
+
+	//20260828 by claude. 반경이 작으면(ROUNDSMALL=4, thickness=1 → r_in 3, aa_band 3) 이 값이 음수가 되어
+	//아래 루프가 코너 픽셀을 전부 건너뛰었다. 직선 구간 루프도 코너를 제외하므로 코너만 원본 오염 픽셀
+	//(뒤 배경이 섞인 DWM 반투명 테두리) 이 그대로 남아, 변의 테두리와 색이 어긋나 잘린 것처럼 보였다.
+	//샘플 반경은 "창 내용이 온전한 가장 바깥 지점" 이면 되므로 1px 아래로 내려갈 이유가 없다.
+	double sample_dist = r_in - double(aa_band) - 0.5;
+	if (sample_dist < 1.0)
+		sample_dist = 1.0;
 
 	auto paint_corner = [&](int x0, int y0, double cx, double cy)
 	{
@@ -1527,7 +1534,7 @@ static void repair_dwm_border(BYTE* px, int w, int h, int corner_radius, int thi
 				if (dist > r_out + 0.5)
 					continue;
 				//AA 띠보다 안쪽은 온전한 창 내용이다.
-				if (dist < sample_dist || dist < 1.0 || sample_dist <= 0.0)
+				if (dist < sample_dist)
 					continue;
 
 				const int sx = int(cx + dx / dist * sample_dist);
