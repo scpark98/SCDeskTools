@@ -807,6 +807,7 @@ void CSCDeskToolsDlg::OnToolColorPicker()
 
 LRESULT CSCDeskToolsDlg::on_message_CSCColorPicker(WPARAM wParam, LPARAM lParam)
 {
+	/*
 	//modeless 피커가 색상 변경을 알릴 때마다 도착. 단계 1 에서는 타이틀바에 hex 만 반영.
 	auto msg = reinterpret_cast<CSCColorPickerMessage*>(wParam);
 	m_cr_selected = msg->cr_selected;
@@ -815,6 +816,7 @@ LRESULT CSCDeskToolsDlg::on_message_CSCColorPicker(WPARAM wParam, LPARAM lParam)
 	title.Format(_T("SCDeskTools - #%02X%02X%02X"),
 		m_cr_selected.GetR(), m_cr_selected.GetG(), m_cr_selected.GetB());
 	SetWindowText(title);
+	*/
 	return 0;
 }
 

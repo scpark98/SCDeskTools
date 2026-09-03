@@ -32,7 +32,6 @@ protected:
 
 	CSysTrayIcon	m_sys_tray;
 	CSCColorPicker	m_color_picker;	//modeless 컬러 피커. OnInitDialog 에서 1회 create.
-	Gdiplus::Color	m_cr_selected = Gdiplus::Color::Transparent;	//피커가 보낸 최근 색상.
 
 	//메인 창에 노출할 즐겨찾기 툴 ID 목록. 향후 설정창에서 편집 → 레지스트리 저장 예정.
 	//지금은 OnInitDialog 에서 default_favorites 로 초기화.
