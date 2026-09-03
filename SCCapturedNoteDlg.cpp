@@ -3,26 +3,32 @@
 #include "pch.h"
 #include "SCCapturedNoteDlg.h"
 #include "Common/Functions.h"
+#include "Common/win_compat/dwm.h"
 
-//노트 배경색은 노트 하나가 아니라 앱 전체 설정 — 여기서 바꾼 색이 이후 캡처 노트에도 그대로 적용된다.
-//저장값 -1 = 지정 안 함 (CSCD2ImageDlg 기본 동작: 짙은 회색 + 투명 픽셀 구간 격자).
-static Gdiplus::Color load_note_back_color()
+//노트 배경은 노트 하나가 아니라 앱 전체 설정 — 여기서 바꾼 값이 이후 캡처 노트에도 그대로 적용된다.
+//저장값은 아래 두 상수, 또는 0 이상이면 COLORREF.
+static const int back_default = -1;	//CSCD2ImageDlg 기본 — RGB(32,32,32) 단색
+static const int back_zigzag  = -2;	//배경 전체를 투명 격자로
+
+static int load_note_back_setting()
 {
-	const int value = AfxGetApp()->GetProfileInt(_T("settings"), _T("note_back_color"), -1);
-	if (value < 0)
-		return Gdiplus::Color::Transparent;
-
-	const COLORREF cr = static_cast<COLORREF>(value);
-	return gRGB(GetRValue(cr), GetGValue(cr), GetBValue(cr));
+	return AfxGetApp()->GetProfileInt(_T("settings"), _T("note_back_color"), back_default);
 }
 
-static void save_note_back_color(Gdiplus::Color cr_back)
+static void save_note_back_setting(int value)
 {
-	const int value = (cr_back.GetA() == 0)
-		? -1
-		: static_cast<int>(RGB(cr_back.GetR(), cr_back.GetG(), cr_back.GetB()));
-
 	AfxGetApp()->WriteProfileInt(_T("settings"), _T("note_back_color"), value);
+}
+
+//크기 / 비율 / 마우스 픽셀 좌표 표시 여부. 가운데 버튼 토글 결과가 이후 노트에도 이어진다.
+static bool load_note_show_info()
+{
+	return AfxGetApp()->GetProfileInt(_T("settings"), _T("note_show_info"), 1) != 0;
+}
+
+static void save_note_show_info(bool show)
+{
+	AfxGetApp()->WriteProfileInt(_T("settings"), _T("note_show_info"), show ? 1 : 0);
 }
 
 //32bpp BGRA top-down 픽셀의 가장자리만 블러로 부드럽게 (in-place).
@@ -186,6 +192,9 @@ IMPLEMENT_DYNAMIC(CSCCapturedNoteDlg, CDialog)
 
 BEGIN_MESSAGE_MAP(CSCCapturedNoteDlg, CDialog)
 	ON_WM_SIZE()
+	ON_WM_TIMER()
+	ON_WM_NCMBUTTONDOWN()
+	ON_WM_MBUTTONDOWN()
 	ON_WM_NCHITTEST()
 	ON_WM_NCCALCSIZE()
 	ON_WM_CONTEXTMENU()
@@ -233,11 +242,15 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 		::LoadCursor(NULL, IDC_ARROW),
 		reinterpret_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)));
 
-	//시작 사이즈 = 이미지 사이즈, 단 화면의 80% 를 넘지 않게 ratio 보존 축소.
+	//시작 사이즈 = 이미지 사이즈(=100%), 단 화면의 2/3 를 넘으면 ratio 보존 축소.
+	//모니터 전체 캡처처럼 화면을 거의 채우는 이미지를 100% 로 띄우면 원본과 겹쳐 구분이 안 되고
+	//노트를 옮기거나 닫기도 불편하다. 그 크기부터는 배율을 낮춰 "따로 뜬 창" 으로 보이게 한다.
+	//여기서 구하는 값은 창 크기가 아니라 client 크기다 — WS_SIZEBOX 프레임 두께만큼 창을 더 키워야
+	//이미지가 100% 로 그려진다. 창 크기로 잡으면 프레임이 먹은 만큼 축소돼 보인다 (아래 SetWindowPos).
 	const int cx_screen = ::GetSystemMetrics(SM_CXSCREEN);
 	const int cy_screen = ::GetSystemMetrics(SM_CYSCREEN);
-	const int max_cx = cx_screen * 80 / 100;
-	const int max_cy = cy_screen * 80 / 100;
+	const int max_cx = cx_screen * 2 / 3;
+	const int max_cy = cy_screen * 2 / 3;
 
 	int win_cx = w;
 	int win_cy = h;
@@ -254,11 +267,15 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	if (win_cx < 80) win_cx = 80;
 	if (win_cy < 60) win_cy = 60;
 
+	//원본과 정확히 겹쳐 놓으면 캡처본인지 원본인지 구분이 안 된다. 우하로 살짝 밀어 원본이
+	//뒤로 드러나게 한다 (그림자 + 등장 시 테두리 깜빡임과 함께 "방금 캡처한 창" 신호).
+	const int capture_offset = 16;
+
 	int x, y;
 	if (pos_screen)
 	{
-		x = pos_screen->x;
-		y = pos_screen->y;
+		x = pos_screen->x + capture_offset;
+		y = pos_screen->y + capture_offset;
 	}
 	else
 	{
@@ -289,9 +306,32 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	if (!ok)
 		return false;
 
+	//WS_SIZEBOX 프레임이 client 를 갉아먹어 이미지가 100% 로 안 그려진다.
+	//client 가 정확히 win_cx x win_cy 가 되도록 창을 키우고, client 좌상단이 의도한 좌표(x, y)에
+	//오도록 창 위치도 프레임 두께만큼 당긴다.
+	{
+		CRect rc_window, rc_client;
+		GetWindowRect(rc_window);
+		GetClientRect(rc_client);
+
+		CPoint pt_client_origin(0, 0);
+		ClientToScreen(&pt_client_origin);
+
+		SetWindowPos(NULL,
+			x - (pt_client_origin.x - rc_window.left),
+			y - (pt_client_origin.y - rc_window.top),
+			win_cx + (rc_window.Width()  - rc_client.Width()),
+			win_cy + (rc_window.Height() - rc_client.Height()),
+			SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+
 	//WS_EX_LAYERED 활성화 ? Ctrl+wheel 로 창 투명도 조절 가능하게.
 	ModifyStyleEx(0, WS_EX_LAYERED);
 	SetLayeredWindowAttributes(0, m_alpha, LWA_ALPHA);
+
+	//borderless 창은 기본적으로 그림자가 없다. 1px extend 로 DWM 이 그림자를 계산하게 한다.
+	//원본 위에 떠 있다는 신호 — 오프셋과 함께 캡처본임을 알아보게 하는 장치.
+	win_compat::dwm::extend_frame_into_client_area(m_hWnd);
 
 	//컨테이너 자체 D2D 컨텍스트.
 	HRESULT hr = m_d2.init(m_hWnd, win_cx, win_cy);
@@ -319,7 +359,13 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	CRect rc_client;
 	GetClientRect(rc_client);
 	m_img_dlg.create(this, 0, 0, rc_client.Width(), rc_client.Height());
-	m_img_dlg.set_back_color(load_note_back_color());
+	apply_back_setting(load_note_back_setting());
+	m_show_info = load_note_show_info();
+
+	//CSCD2ImageDlg::create() 는 simple_mode 여도 앱 전역 뷰어 배율(setting\CSCD2ImageDlg)을 복원한다.
+	//캡처 노트는 매번 새 이미지라 직전 노트에서 휠로 줄여 본 배율을 물려받으면 안 된다.
+	//client 를 이미지 크기로 맞춰 뒀으므로 fit2ctrl = 100%.
+	m_img_dlg.fit2ctrl(true);
 	m_img_dlg.set_image(&m_image);
 
 	//post-paint 콜백 ? m_img_dlg 의 D2D 같은 frame 에 추가 오버레이 그림 (안티앨리어싱, z-order 충돌 없음).
@@ -331,7 +377,51 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 
 	ShowWindow(SW_SHOW);
 	SetForegroundWindow();
+
+	m_border_flash_on = true;
+	m_border_flash_step = 0;
+	SetTimer(timer_border_flash, border_flash_interval, NULL);
+
 	return true;
+}
+
+void CSCCapturedNoteDlg::toggle_info()
+{
+	m_show_info = !m_show_info;
+	save_note_show_info(m_show_info);
+	m_img_dlg.Invalidate(FALSE);
+}
+
+void CSCCapturedNoteDlg::OnNcMButtonDown(UINT nHitTest, CPoint point)
+{
+	toggle_info();
+	CDialog::OnNcMButtonDown(nHitTest, point);
+}
+
+void CSCCapturedNoteDlg::OnMButtonDown(UINT nFlags, CPoint point)
+{
+	toggle_info();
+	CDialog::OnMButtonDown(nFlags, point);
+}
+
+void CSCCapturedNoteDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == timer_border_flash)
+	{
+		m_border_flash_on = !m_border_flash_on;
+		++m_border_flash_step;
+
+		if (m_border_flash_step >= border_flash_steps)
+		{
+			KillTimer(timer_border_flash);
+			m_border_flash_on = false;
+		}
+
+		m_img_dlg.Invalidate(FALSE);
+		return;
+	}
+
+	CDialog::OnTimer(nIDEvent);
 }
 
 void CSCCapturedNoteDlg::OnSize(UINT nType, int cx, int cy)
@@ -426,6 +516,26 @@ void CSCCapturedNoteDlg::OnNcRButtonUp(UINT /*nHitTest*/, CPoint point)
 	show_context_menu(point);
 }
 
+void CSCCapturedNoteDlg::apply_back_setting(int value)
+{
+	m_img_dlg.set_back_zigzag(value == back_zigzag);
+	m_img_dlg.set_back_color(value >= 0
+		? gRGB(GetRValue(COLORREF(value)), GetGValue(COLORREF(value)), GetBValue(COLORREF(value)))
+		: Gdiplus::Color::Transparent);
+}
+
+int CSCCapturedNoteDlg::get_back_setting() const
+{
+	if (m_img_dlg.get_back_zigzag())
+		return back_zigzag;
+
+	const Gdiplus::Color cr = m_img_dlg.get_back_color();
+	if (cr.GetA() == 0)
+		return back_default;
+
+	return static_cast<int>(RGB(cr.GetR(), cr.GetG(), cr.GetB()));
+}
+
 void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 {
 	const bool is_fit	= m_img_dlg.get_fit2ctrl();
@@ -442,15 +552,26 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 	menu.AppendMenu(MF_SEPARATOR);
 	menu.AppendMenu(flag_100,	cmd_zoom_100, _T("100% 크기\tCtrl+W"));
 	menu.AppendMenu(flag_fit,	cmd_zoom_fit, _T("창에 맞춤(&F)\tCtrl+F"));
+
+	const bool is_nearest = (m_img_dlg.get_interpolation_mode() == D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+
+	CMenu menu_interp;
+	menu_interp.CreatePopupMenu();
+	menu_interp.AppendMenu(MF_STRING | (is_nearest ? MF_CHECKED : MF_UNCHECKED), cmd_interp_nearest, _T("원본 그대로\tAlt+1"));
+	menu_interp.AppendMenu(MF_STRING | (is_nearest ? MF_UNCHECKED : MF_CHECKED), cmd_interp_linear,  _T("부드럽게\tAlt+2"));
+	menu.AppendMenu(MF_POPUP, reinterpret_cast<UINT_PTR>(menu_interp.GetSafeHmenu()), _T("보간 방식(&Q)"));
+	menu_interp.Detach();
+
 	menu.AppendMenu(MF_SEPARATOR);
 
-	const bool is_back_default = (m_img_dlg.get_back_color().GetA() == 0);
+	const int back = get_back_setting();
 
 	CMenu menu_back;
 	menu_back.CreatePopupMenu();
-	menu_back.AppendMenu(MF_STRING | (is_back_default ? MF_CHECKED : MF_UNCHECKED), cmd_back_default, _T("기본 (격자)"));
-	menu_back.AppendMenu(MF_STRING | (is_back_default ? MF_UNCHECKED : MF_CHECKED), cmd_back_custom, _T("색 지정..."));
-	menu.AppendMenu(MF_POPUP, reinterpret_cast<UINT_PTR>(menu_back.GetSafeHmenu()), _T("배경색(&B)"));
+	menu_back.AppendMenu(MF_STRING | (back == back_default ? MF_CHECKED : MF_UNCHECKED), cmd_back_default, _T("기본"));
+	menu_back.AppendMenu(MF_STRING | (back == back_zigzag  ? MF_CHECKED : MF_UNCHECKED), cmd_back_zigzag,  _T("투명 격자"));
+	menu_back.AppendMenu(MF_STRING | (back >= 0            ? MF_CHECKED : MF_UNCHECKED), cmd_back_custom,  _T("색 지정..."));
+	menu.AppendMenu(MF_POPUP, reinterpret_cast<UINT_PTR>(menu_back.GetSafeHmenu()), _T("배경(&B)"));
 
 	//AppendMenu(MF_POPUP) 로 붙인 시점부터 소유권이 menu 로 넘어간다.
 	//Detach 하지 않으면 menu_back 소멸자와 menu 소멸자가 같은 HMENU 를 두 번 파괴한다.
@@ -524,27 +645,36 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 			DestroyWindow();
 			break;
 
+		case cmd_interp_nearest:
+			m_img_dlg.set_interpolation_mode(D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+			break;
+
+		case cmd_interp_linear:
+			m_img_dlg.set_interpolation_mode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+			break;
+
 		case cmd_back_default:
-			m_img_dlg.set_back_color(Gdiplus::Color::Transparent);
-			save_note_back_color(Gdiplus::Color::Transparent);
+			apply_back_setting(back_default);
+			save_note_back_setting(back_default);
+			break;
+
+		case cmd_back_zigzag:
+			apply_back_setting(back_zigzag);
+			save_note_back_setting(back_zigzag);
 			break;
 
 		case cmd_back_custom:
 		{
-			const Gdiplus::Color cr_cur = m_img_dlg.get_back_color();
-			const COLORREF cr_init = (cr_cur.GetA() == 0)
-				? RGB(32, 32, 32)
-				: RGB(cr_cur.GetR(), cr_cur.GetG(), cr_cur.GetB());
+			const int back = get_back_setting();
+			const COLORREF cr_init = (back >= 0) ? static_cast<COLORREF>(back) : RGB(32, 32, 32);
 
 			CColorDialog dlg(cr_init, CC_FULLOPEN | CC_ANYCOLOR, this);
 			if (dlg.DoModal() != IDOK)
 				break;
 
-			const COLORREF cr = dlg.GetColor();
-			const Gdiplus::Color cr_back = gRGB(GetRValue(cr), GetGValue(cr), GetBValue(cr));
-
-			m_img_dlg.set_back_color(cr_back);
-			save_note_back_color(cr_back);
+			const int value = static_cast<int>(dlg.GetColor());
+			apply_back_setting(value);
+			save_note_back_setting(value);
 			break;
 		}
 
@@ -781,10 +911,10 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 		switch (pMsg->wParam)
 		{
 			case '1':
-				m_img_dlg.set_interpolation_mode(D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+				execute_cmd(cmd_interp_nearest);
 				return TRUE;
 			case '2':
-				m_img_dlg.set_interpolation_mode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+				execute_cmd(cmd_interp_linear);
 				return TRUE;
 
 			//Alt+Left/Right = 15° 회전, Alt+Shift+Left/Right = 1° 회전.
@@ -870,7 +1000,7 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 
 	const int margin = 6;
 
-	if (m_img_w > 0 && m_img_h > 0)
+	if (m_show_info && m_img_w > 0 && m_img_h > 0)
 	{
 		WCHAR size_text[64];
 		swprintf_s(size_text, L"(%d x %d) (%.3f:1)", m_img_w, m_img_h, double(m_img_w) / double(m_img_h));
@@ -880,7 +1010,7 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 			1.0f, DT_LEFT | DT_BOTTOM);
 	}
 
-	if (m_hover_pixel.X >= 0.0f && m_hover_pixel.Y >= 0.0f)
+	if (m_show_info && m_hover_pixel.X >= 0.0f && m_hover_pixel.Y >= 0.0f)
 	{
 		WCHAR text[64];
 		swprintf_s(text, L"(%d, %d)", int(m_hover_pixel.X), int(m_hover_pixel.Y));
@@ -889,6 +1019,15 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 			_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
 			Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,
 			1.0f, DT_RIGHT | DT_BOTTOM);
+	}
+
+	//캡처 직후 2회 깜빡이고 사라지는 알림 테두리. 상시 테두리로 두면 캡처 원본에 원래 있던
+	//테두리로 오해할 수 있어, 등장 순간에만 보여주고 흔적을 남기지 않는다.
+	if (m_border_flash_on)
+	{
+		CRect rb = rc;
+		rb.DeflateRect(1, 1);
+		draw_rect(d2dc, rb, Gdiplus::Color(255, 0, 150, 255), Gdiplus::Color::Transparent, 2.0f);
 	}
 
 	//우상단 닫기 버튼 — 호버 시점에만 D2D 로 직접 그림. round 코너 바깥은 그리지 않아
