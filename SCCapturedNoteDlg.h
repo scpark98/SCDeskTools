@@ -7,7 +7,7 @@
 // - Shift + 드래그 = 이미지 pan (simple_mode 자식이 자체 pan 을 안 하므로 NoteDlg 가 m_img_dlg.scroll() 직접 호출).
 // - 휠 = 줌 인/아웃 (m_img_dlg.zoom(±1)).
 // - +, - 키 = 줌 인/아웃.
-// - 우클릭 = 컨텍스트 메뉴 (클립보드 복사 / 100% / fit / 닫기).
+// - 우클릭 = 컨텍스트 메뉴 (클립보드 복사 / 100% / fit / 배경색 / 닫기).
 // - ESC = 닫기.
 // - heap 할당 + PostNcDestroy 에서 self-delete (멀티 인스턴스 안전).
 //
@@ -50,6 +50,8 @@ private:
 		cmd_close = 4,
 		cmd_save = 5,
 		cmd_gradient_edge = 6,
+		cmd_back_default = 7,
+		cmd_back_custom = 8,
 	};
 
 	CSCD2Context	m_d2;

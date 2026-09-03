@@ -4,6 +4,27 @@
 #include "SCCapturedNoteDlg.h"
 #include "Common/Functions.h"
 
+//노트 배경색은 노트 하나가 아니라 앱 전체 설정 — 여기서 바꾼 색이 이후 캡처 노트에도 그대로 적용된다.
+//저장값 -1 = 지정 안 함 (CSCD2ImageDlg 기본 동작: 짙은 회색 + 투명 픽셀 구간 격자).
+static Gdiplus::Color load_note_back_color()
+{
+	const int value = AfxGetApp()->GetProfileInt(_T("settings"), _T("note_back_color"), -1);
+	if (value < 0)
+		return Gdiplus::Color::Transparent;
+
+	const COLORREF cr = static_cast<COLORREF>(value);
+	return gRGB(GetRValue(cr), GetGValue(cr), GetBValue(cr));
+}
+
+static void save_note_back_color(Gdiplus::Color cr_back)
+{
+	const int value = (cr_back.GetA() == 0)
+		? -1
+		: static_cast<int>(RGB(cr_back.GetR(), cr_back.GetG(), cr_back.GetB()));
+
+	AfxGetApp()->WriteProfileInt(_T("settings"), _T("note_back_color"), value);
+}
+
 //32bpp BGRA top-down 픽셀의 가장자리만 블러로 부드럽게 (in-place).
 //premultiplied 도메인에서 BGRA 전체에 separable box blur → un-premultiply 로 straight alpha 복원.
 //마지막에 원본 alpha=255 픽셀의 RGB 를 복원 → 내부 화질은 보존, 가장자리만 흐려짐.
@@ -298,6 +319,7 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	CRect rc_client;
 	GetClientRect(rc_client);
 	m_img_dlg.create(this, 0, 0, rc_client.Width(), rc_client.Height());
+	m_img_dlg.set_back_color(load_note_back_color());
 	m_img_dlg.set_image(&m_image);
 
 	//post-paint 콜백 ? m_img_dlg 의 D2D 같은 frame 에 추가 오버레이 그림 (안티앨리어싱, z-order 충돌 없음).
@@ -421,6 +443,19 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 	menu.AppendMenu(flag_100,	cmd_zoom_100, _T("100% 크기\tCtrl+W"));
 	menu.AppendMenu(flag_fit,	cmd_zoom_fit, _T("창에 맞춤(&F)\tCtrl+F"));
 	menu.AppendMenu(MF_SEPARATOR);
+
+	const bool is_back_default = (m_img_dlg.get_back_color().GetA() == 0);
+
+	CMenu menu_back;
+	menu_back.CreatePopupMenu();
+	menu_back.AppendMenu(MF_STRING | (is_back_default ? MF_CHECKED : MF_UNCHECKED), cmd_back_default, _T("기본 (격자)"));
+	menu_back.AppendMenu(MF_STRING | (is_back_default ? MF_UNCHECKED : MF_CHECKED), cmd_back_custom, _T("색 지정..."));
+	menu.AppendMenu(MF_POPUP, reinterpret_cast<UINT_PTR>(menu_back.GetSafeHmenu()), _T("배경색(&B)"));
+
+	//AppendMenu(MF_POPUP) 로 붙인 시점부터 소유권이 menu 로 넘어간다.
+	//Detach 하지 않으면 menu_back 소멸자와 menu 소멸자가 같은 HMENU 를 두 번 파괴한다.
+	menu_back.Detach();
+
 	menu.AppendMenu(MF_STRING, cmd_gradient_edge, _T("Gradient Edge(&G)"));
 	menu.AppendMenu(MF_SEPARATOR);
 	menu.AppendMenu(MF_STRING, cmd_close,	_T("닫기(&X)\tEsc"));
@@ -488,6 +523,30 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 		case cmd_close:
 			DestroyWindow();
 			break;
+
+		case cmd_back_default:
+			m_img_dlg.set_back_color(Gdiplus::Color::Transparent);
+			save_note_back_color(Gdiplus::Color::Transparent);
+			break;
+
+		case cmd_back_custom:
+		{
+			const Gdiplus::Color cr_cur = m_img_dlg.get_back_color();
+			const COLORREF cr_init = (cr_cur.GetA() == 0)
+				? RGB(32, 32, 32)
+				: RGB(cr_cur.GetR(), cr_cur.GetG(), cr_cur.GetB());
+
+			CColorDialog dlg(cr_init, CC_FULLOPEN | CC_ANYCOLOR, this);
+			if (dlg.DoModal() != IDOK)
+				break;
+
+			const COLORREF cr = dlg.GetColor();
+			const Gdiplus::Color cr_back = gRGB(GetRValue(cr), GetGValue(cr), GetBValue(cr));
+
+			m_img_dlg.set_back_color(cr_back);
+			save_note_back_color(cr_back);
+			break;
+		}
 
 		case cmd_gradient_edge:
 		{
@@ -628,7 +687,7 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 		//여기에 들어오는 경우는 우측 상단에 표시된 닫기버튼에서 마우스가 움직일 때 뿐이다.
 		//dlg에서 마우스를 움직이면 HTCAPTION으로 매핑하므로 NcMouseMove가 발생하고
 		//shift를 누르면 CSCCapturedNoteDlg::OnMouseMove() 함수가 호출된다.
-		TRACE(_T("PreTranslateMessage, WM_MOUSEMOVE\n"));
+		//TRACE(_T("PreTranslateMessage, WM_MOUSEMOVE\n"));
 	}
 	else if (pMsg->message == WM_MOUSEWHEEL)
 	{
@@ -856,7 +915,7 @@ void CSCCapturedNoteDlg::OnNcMouseMove(UINT nHitTest, CPoint point)
 {
 	//point 는 screen 좌표. OnNcHitTest 가 client 영역(닫기 버튼 제외)에 대해 HTCAPTION 을
 	//리턴하므로 client 위 마우스 이동도 거의 여기로 옴 (resize 보더의 HTTOP/HTRIGHT 등 포함).
-	TRACE(_T("nc mouse move. hit=%u screen=(%d, %d)\n"), nHitTest, point.x, point.y);
+	//TRACE(_T("nc mouse move. hit=%u screen=(%d, %d)\n"), nHitTest, point.x, point.y);
 	ScreenToClient(&point);
 
 	//닫기 버튼 영역을 벗어나 NC 로 진입 — 호버 해제.
