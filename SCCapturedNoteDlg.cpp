@@ -370,9 +370,10 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	apply_back_setting(load_note_back_setting());
 	m_show_info = load_note_show_info();
 
-	//CSCD2ImageDlg::create() 는 simple_mode 여도 앱 전역 뷰어 배율(setting\CSCD2ImageDlg)을 복원한다.
-	//캡처 노트는 매번 새 이미지라 직전 노트에서 휠로 줄여 본 배율을 물려받으면 안 된다.
 	//client 를 이미지 크기로 맞춰 뒀으므로 fit2ctrl = 100%.
+	//20260904 by claude. 예전엔 CSCD2ImageDlg::create() 가 simple_mode 에서도 앱 전역 뷰어 배율을
+	//복원해서 직전 노트의 배율을 물려받았고, 이 호출이 그 우회였다. 그건 Common 쪽에서 고쳤으니
+	//(simple_mode 는 전역 설정을 읽지도 쓰지도 않는다) 이제 이 줄은 의도를 명시하는 역할만 한다.
 	m_img_dlg.fit2ctrl(true);
 	m_img_dlg.set_image(&m_image);
 
@@ -447,6 +448,12 @@ CRect CSCCapturedNoteDlg::get_close_button_rect() const
 {
 	CRect rc;
 	GetClientRect(rc);
+
+	//20260904 by claude. **DPI 로 스케일하지 않는다.** 이 창의 client 는 이미지 픽셀과 1:1 이라
+	//배율이 달라도 320px 짜리 캡처는 어느 모니터에서든 320px 그대로다. 그 고정된 판 위의 버튼만
+	//DPI 를 따라 커지면 비율이 깨진다 — 175% 에서 36px(노트 폭의 11.6%), 100% 에서 21px(6.6%).
+	//메인 다이얼로그는 창 자체가 DPI 로 커지므로 버튼도 커지는 것이 맞고, 여기는 반대다.
+	//크롬은 자기가 올라탄 판을 따라간다 — 여기서 판은 노트(=이미지 픽셀)다.
 	const int sz = 21;
 	const int margin = 3;
 	return CRect(rc.right - sz - margin, margin, rc.right - margin, margin + sz);
@@ -493,14 +500,21 @@ LRESULT CSCCapturedNoteDlg::OnNcHitTest(CPoint point)
 
 void CSCCapturedNoteDlg::OnNcCalcSize(BOOL bCalcValidRects, NCCALCSIZE_PARAMS* lpncsp)
 {
-	//캡션바 없는 popup 에서 default 가 남기는 상단 흰색 NC 영역을 client 로 흡수.
-	//client rect 의 top 을 6px 위로 확장하여 그 영역을 우리 클라이언트가 덮게 한다.
-	//CASeeDlg::OnNcCalcSize 와 동일 패턴.
-
-	if (bCalcValidRects && lpncsp)
-		lpncsp->rgrc[0].top -= 6;
+	//캡션바 없는 popup 은 default 처리가 상단에 흰색 NC 영역을 남긴다. 그 영역을 client 로 흡수해
+	//우리가 덮어 그린다. 남기는 것은 맨 바깥 테두리 1px 뿐.
+	//
+	//20260904 by claude. 원래 `rgrc[0].top -= 6` 이었는데 그 6 이 하드코딩이라 DPI 를 못 따라갔다.
+	//프레임 두께는 Per-Monitor V2 에서 모니터마다 다르다 — 100% 는 7px, 175% 는 11px.
+	//6 을 빼면 100% 에서는 1px 만 남아 맞지만 175% 에서는 5px 이 남고 그 중 3px 이 흰색으로 보인다.
+	//그래서 상수를 빼는 대신 *실제 프레임을 재서* 흡수한다:
+	//  진입 시 rgrc[0] = 새 윈도우 rect → DefWindowProc 이 제자리에서 client rect 로 바꾼다.
+	//  그 전후 차이가 곧 프레임 두께이므로, base 호출 뒤에 top 을 윈도우 top + 1 로 되돌리면 된다.
+	const LONG window_top = (bCalcValidRects && lpncsp) ? lpncsp->rgrc[0].top : 0;
 
 	CDialog::OnNcCalcSize(bCalcValidRects, lpncsp);
+
+	if (bCalcValidRects && lpncsp)
+		lpncsp->rgrc[0].top = window_top + 1;
 }
 
 void CSCCapturedNoteDlg::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
