@@ -4,20 +4,28 @@
 #include "SCCapturedNoteDlg.h"
 #include "Common/Functions.h"
 #include "Common/win_compat/dwm.h"
+#include "Common/CDialog/CSCColorPicker/SCColorPicker.h"
 
 //노트 배경은 노트 하나가 아니라 앱 전체 설정 — 여기서 바꾼 값이 이후 캡처 노트에도 그대로 적용된다.
-//저장값은 아래 두 상수, 또는 0 이상이면 COLORREF.
-static const int back_default = -1;	//CSCD2ImageDlg 기본 — RGB(32,32,32) 단색
-static const int back_zigzag  = -2;	//배경 전체를 투명 격자로
+//저장값은 ARGB. 알파 0 은 색으로서 의미가 없으므로 그 자리를 모드 표시로 쓴다.
+static const DWORD back_default = 0x00000000;	//아래 back_default_color
+static const DWORD back_zigzag  = 0x00000001;	//배경 전체를 투명 격자로
 
-static int load_note_back_setting()
+//불투명 배경은 캡처된 이미지의 일부인지 노트 배경인지 구분이 안 되므로, 처음부터 반투명으로 시작한다.
+//알파가 255 미만이면 CSCD2ImageDlg 가 투명 격자를 깔고 그 위에 이 색을 덮는다.
+//192 로 두면 격자 대비가 55 → 14 단계로 줄어 거의 안 보인다. 128 이면 격자가 또렷해 한눈에 배경으로 읽힌다.
+static const Gdiplus::Color back_default_color = Gdiplus::Color(128, 32, 32, 32);
+
+//키 이름이 note_back_color 에서 바뀐 이유: 예전 값은 COLORREF + 음수 sentinel 이라 ARGB 로 읽으면
+//알파가 엉뚱하게 해석된다. 새 키로 시작하면 기존 값이 조용히 무시되고 기본값부터 다시 쌓인다.
+static DWORD load_note_back_setting()
 {
-	return AfxGetApp()->GetProfileInt(_T("settings"), _T("note_back_color"), back_default);
+	return (DWORD)AfxGetApp()->GetProfileInt(_T("settings"), _T("note_back_argb"), (int)back_default);
 }
 
-static void save_note_back_setting(int value)
+static void save_note_back_setting(DWORD value)
 {
-	AfxGetApp()->WriteProfileInt(_T("settings"), _T("note_back_color"), value);
+	AfxGetApp()->WriteProfileInt(_T("settings"), _T("note_back_argb"), (int)value);
 }
 
 //크기 / 비율 / 마우스 픽셀 좌표 표시 여부. 가운데 버튼 토글 결과가 이후 노트에도 이어진다.
@@ -516,24 +524,28 @@ void CSCCapturedNoteDlg::OnNcRButtonUp(UINT /*nHitTest*/, CPoint point)
 	show_context_menu(point);
 }
 
-void CSCCapturedNoteDlg::apply_back_setting(int value)
+void CSCCapturedNoteDlg::apply_back_setting(DWORD value)
 {
 	m_img_dlg.set_back_zigzag(value == back_zigzag);
-	m_img_dlg.set_back_color(value >= 0
-		? gRGB(GetRValue(COLORREF(value)), GetGValue(COLORREF(value)), GetBValue(COLORREF(value)))
-		: Gdiplus::Color::Transparent);
+
+	if (value == back_zigzag)
+		m_img_dlg.set_back_color(Gdiplus::Color::Transparent);
+	else if (value == back_default)
+		m_img_dlg.set_back_color(back_default_color);
+	else
+		m_img_dlg.set_back_color(Gdiplus::Color(value));
 }
 
-int CSCCapturedNoteDlg::get_back_setting() const
+DWORD CSCCapturedNoteDlg::get_back_setting() const
 {
 	if (m_img_dlg.get_back_zigzag())
 		return back_zigzag;
 
 	const Gdiplus::Color cr = m_img_dlg.get_back_color();
-	if (cr.GetA() == 0)
+	if (cr.GetValue() == back_default_color.GetValue())
 		return back_default;
 
-	return static_cast<int>(RGB(cr.GetR(), cr.GetG(), cr.GetB()));
+	return cr.GetValue();
 }
 
 void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
@@ -564,13 +576,14 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 
 	menu.AppendMenu(MF_SEPARATOR);
 
-	const int back = get_back_setting();
+	const DWORD back = get_back_setting();
+	const bool back_is_custom = (back != back_default && back != back_zigzag);
 
 	CMenu menu_back;
 	menu_back.CreatePopupMenu();
 	menu_back.AppendMenu(MF_STRING | (back == back_default ? MF_CHECKED : MF_UNCHECKED), cmd_back_default, _T("기본"));
 	menu_back.AppendMenu(MF_STRING | (back == back_zigzag  ? MF_CHECKED : MF_UNCHECKED), cmd_back_zigzag,  _T("투명 격자"));
-	menu_back.AppendMenu(MF_STRING | (back >= 0            ? MF_CHECKED : MF_UNCHECKED), cmd_back_custom,  _T("색 지정..."));
+	menu_back.AppendMenu(MF_STRING | (back_is_custom       ? MF_CHECKED : MF_UNCHECKED), cmd_back_custom,  _T("색 지정..."));
 	menu.AppendMenu(MF_POPUP, reinterpret_cast<UINT_PTR>(menu_back.GetSafeHmenu()), _T("배경(&B)"));
 
 	//AppendMenu(MF_POPUP) 로 붙인 시점부터 소유권이 menu 로 넘어간다.
@@ -665,14 +678,19 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 
 		case cmd_back_custom:
 		{
-			const int back = get_back_setting();
-			const COLORREF cr_init = (back >= 0) ? static_cast<COLORREF>(back) : RGB(32, 32, 32);
+			const DWORD back = get_back_setting();
+			const Gdiplus::Color cr_init = (back == back_default || back == back_zigzag)
+				? back_default_color
+				: Gdiplus::Color(back);
 
-			CColorDialog dlg(cr_init, CC_FULLOPEN | CC_ANYCOLOR, this);
-			if (dlg.DoModal() != IDOK)
+			CSCColorPicker picker;
+			if (picker.DoModal(this, cr_init, _T("노트 배경색")) == IDCANCEL)
 				break;
 
-			const int value = static_cast<int>(dlg.GetColor());
+			//알파 0 을 그대로 저장하면 back_default / back_zigzag 와 값이 겹친다. 그 경우는 완전 투명이나
+			//다름없으니 투명 격자 모드로 보낸다.
+			const Gdiplus::Color cr = picker.get_selected_color();
+			const DWORD value = (cr.GetA() == 0) ? back_zigzag : cr.GetValue();
 			apply_back_setting(value);
 			save_note_back_setting(value);
 			break;

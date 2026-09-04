@@ -96,8 +96,8 @@ private:
 
 	bool			init_with_image(const BYTE* bgra, int w, int h, const POINT* pos_screen);
 	void			show_context_menu(CPoint pt_screen);
-	void			apply_back_setting(int value);	//back_default / back_zigzag / COLORREF 를 m_img_dlg 에 반영
-	int				get_back_setting() const;		//현재 상태를 같은 표현으로 되돌려줌 (메뉴 체크 표시용)
+	void			apply_back_setting(DWORD value);	//back_default / back_zigzag / ARGB 를 m_img_dlg 에 반영
+	DWORD			get_back_setting() const;			//현재 상태를 같은 표현으로 되돌려줌 (메뉴 체크 표시용)
 	void			execute_cmd(int cmd);	//메뉴 항목과 단축키가 공유하는 명령 디스패처
 	void			on_img_dlg_post_paint(ID2D1DeviceContext* d2dc);	//m_img_dlg 의 D2D frame 안에서 추가 오버레이 그리기
 	CRect			get_close_button_rect() const;	//닫기 버튼 client 좌표 rect (OnSize / OnNcHitTest / paint / click 공유)
