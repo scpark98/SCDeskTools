@@ -12,6 +12,7 @@
 #include <algorithm>
 
 #include "Common/Functions.h"
+#include "Common/win_compat/dpi.h"
 #include "Common/CDialog/CSCColorPicker/SCDropperDlg.h"
 #include "SCCaptureOverlayDlg.h"
 #include "SCCapturedNoteDlg.h"
@@ -32,6 +33,9 @@
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
+
+//본 파일 하단 정의를 앞쪽 사용처(레이아웃)에서 참조 가능하게 forward declaration.
+static UINT monitor_dpi_for_window(HWND hwnd);
 
 //===== 툴 레지스트리 =====
 //툴을 추가하려면 (1) Resource.h 에 ID_TOOL_* 정의, (2) 핸들러 함수 + ON_COMMAND 추가,
@@ -270,6 +274,10 @@ BEGIN_MESSAGE_MAP(CSCDeskToolsDlg, CDialogEx)
 	ON_BN_CLICKED(IDCANCEL, &CSCDeskToolsDlg::OnBnClickedCancel)
 	ON_BN_CLICKED(id_check_clipboard_only, &CSCDeskToolsDlg::OnBnClickedClipboardOnly)
 	ON_WM_WINDOWPOSCHANGED()
+	ON_MESSAGE(WM_DPICHANGED, &CSCDeskToolsDlg::on_dpi_changed)
+	ON_MESSAGE(Message_ApplyDpiLayout, &CSCDeskToolsDlg::on_message_ApplyDpiLayout)
+	ON_WM_ENTERSIZEMOVE()
+	ON_WM_EXITSIZEMOVE()
 END_MESSAGE_MAP()
 
 
@@ -314,21 +322,10 @@ BOOL CSCDeskToolsDlg::OnInitDialog()
 	//클립보드 전용 옵션 — 레지스트리에서 복원 (default 0).
 	m_clipboard_only = AfxGetApp()->GetProfileInt(_T("settings"), _T("capture_clipboard_only"), 0) != 0;
 
-	//.rc 의 디폴트(480x325) 보다 작게 ? 8 즐겨찾기 + 개발 종료 버튼 + 체크박스가 깔끔히 들어가는 컴팩트 크기.
-	//build_buttons 가 GetClientRect 로 배치하므로 반드시 그 전에 호출.
-	{
-		//높이 = top_margin(14) + 4행 * btn_h(50) + 3 gap * 10 + checkbox_gap(10) + checkbox_h(20) + bottom_margin(14) = 288.
-		const int target_client_w = 400;
-		const int target_client_h = 288;
-		CRect target(0, 0, target_client_w, target_client_h);
-		::AdjustWindowRectEx(&target, GetStyle(), FALSE, GetExStyle());
-		SetWindowPos(NULL, 0, 0, target.Width(), target.Height(),
-			SWP_NOMOVE | SWP_NOZORDER);
-	}
-
-	build_buttons();
-	build_exit_button();
-	build_clipboard_only_checkbox();
+	//20260904 by claude. 창 크기 / 폰트 / 자식 배치를 한 함수로 모은다. 시작할 때와 모니터를 옮겼을 때가
+	//같은 코드를 타야 두 경로의 결과가 어긋나지 않는다 (아래 apply_dpi_layout 주석 참조).
+	m_dpi = monitor_dpi_for_window(m_hWnd);
+	apply_dpi_layout(NULL);
 
 	m_sys_tray.SetParent(m_hWnd);
 	HICON hIconTray = ::AfxGetApp()->LoadIcon(IDR_MAINFRAME);
@@ -358,6 +355,146 @@ BOOL CSCDeskToolsDlg::OnInitDialog()
 	return TRUE;	// 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
 }
 
+int CSCDeskToolsDlg::scaled(int px_at_96dpi) const
+{
+	return ::MulDiv(px_at_96dpi, m_dpi, 96);
+}
+
+//20260904 by claude. 시작 시점의 다이얼로그 폰트와 그때의 DPI 를 기준으로, 지금 DPI 비율만큼
+//키우거나 줄인 폰트를 만든다. GetFont() 를 그대로 쓰지 않는 이유는 apply_dpi_layout 주석 참조.
+void CSCDeskToolsDlg::rebuild_ui_font()
+{
+	if (m_lf_base.lfHeight == 0)
+	{
+		CFont* font = GetFont();
+		if (!font || font->GetLogFont(&m_lf_base) == 0)
+			return;
+		m_dpi_base = m_dpi;
+	}
+
+	LOGFONT lf = m_lf_base;
+	lf.lfHeight = ::MulDiv(m_lf_base.lfHeight, m_dpi, m_dpi_base);
+	lf.lfWidth = 0;
+
+	m_font_ui.DeleteObject();
+	m_font_ui.CreateFontIndirect(&lf);
+}
+
+//20260904 by claude. 창 크기 · 폰트 · 자식 배치를 m_dpi 하나로부터 전부 다시 만든다.
+//시작할 때(OnInitDialog)와 모니터를 옮겼을 때(WM_DPICHANGED)가 반드시 이 함수 하나를 타야 한다.
+//
+//[여기서 겪은 것 — 두 번 다 두 값이 서로 다른 DPI 에서 나와 어긋난 것이었다]
+// 1) 배치만 scaled() 로 고치고 폰트를 OS 에 맡겼더니, 100% 모니터에서 버튼만 작아지고 글자는 175% 로
+//    남았다. Per-Monitor V2 의 다이얼로그 자동 폰트 스케일링은 WM_DPICHANGED 의 *기본 처리* 안에서
+//    일어나는데, ON_MESSAGE 로 가로채 0 을 돌려주면 그게 돌지 않는다. → 폰트도 직접 만든다.
+// 2) 창 크기를 OS 권장 rect(이전 창 rect × 배율비) 로 잡았더니 우리 레이아웃 규칙(클라이언트 400x288)과
+//    달라 클라이언트가 짧아지고 마지막 행이 잘렸다. → 권장 rect 는 *위치* 로만 쓰고 크기는 계산한다.
+//
+//pos_hint: WM_DPICHANGED 가 준 권장 rect. NULL 이면 위치를 바꾸지 않는다.
+void CSCDeskToolsDlg::apply_dpi_layout(const RECT* pos_hint)
+{
+	rebuild_ui_font();
+
+	//높이 = top_margin(14) + 4행 * btn_h(50) + 3 gap * 10 + checkbox_gap(10) + checkbox_h(20) + bottom_margin(14) = 288.
+	//.rc 의 디폴트(480x325) 보다 작게 — 8 즐겨찾기 + 종료 버튼 + 체크박스가 깔끔히 들어가는 컴팩트 크기.
+	CRect target(0, 0, scaled(400), scaled(288));
+	win_compat::dpi::adjust_window_rect(&target, GetStyle(), FALSE, GetExStyle(), m_dpi);
+
+	UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+	int x = 0;
+	int y = 0;
+
+	if (pos_hint)
+	{
+		x = pos_hint->left;
+		y = pos_hint->top;
+	}
+	else
+	{
+		flags |= SWP_NOMOVE;
+	}
+
+	SetWindowPos(NULL, x, y, target.Width(), target.Height(), flags);
+
+	//자식들은 Create 시점의 rect 로 고정돼 있어 DestroyWindow 후 다시 만드는 편이 확실하다.
+	//build_* 가 GetClientRect 로 배치하므로 위 SetWindowPos 뒤에 와야 한다.
+	for (auto& btn : m_buttons_favorite)
+	{
+		if (btn && btn->GetSafeHwnd())
+			btn->DestroyWindow();
+	}
+	m_buttons_favorite.clear();
+
+	if (m_button_exit.GetSafeHwnd())
+		m_button_exit.DestroyWindow();
+	if (m_check_clipboard_only.GetSafeHwnd())
+		m_check_clipboard_only.DestroyWindow();
+
+	build_buttons();
+	build_exit_button();
+	build_clipboard_only_checkbox();
+
+	Invalidate();
+}
+
+LRESULT CSCDeskToolsDlg::on_dpi_changed(WPARAM wParam, LPARAM lParam)
+{
+	//새 DPI 는 wParam 이 알려준다. 이 시점에 창은 아직 옛 모니터에 걸쳐 있어
+	//MonitorFromWindow 로 물으면 옛 값이 나올 수 있다.
+	m_dpi = LOWORD(wParam);
+	if (m_dpi == 0)
+		m_dpi = 96;
+
+	//OS 권장 rect 를 먼저 적용한다 — 이걸 하지 않으면 창이 커서를 따라오지 않는다.
+	//크기는 여기서 잡아봐야 소용없다 (Message_ApplyDpiLayout 주석 참조). 위치만 의미가 있다.
+	const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
+	if (suggested)
+	{
+		SetWindowPos(NULL,
+			suggested->left, suggested->top,
+			suggested->right - suggested->left,
+			suggested->bottom - suggested->top,
+			SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+
+	//실제 레이아웃은 이동이 완전히 끝난 뒤에. 여기서 바로 하면 진행 중인 이동 동작이
+	//변경 전 크기를 도로 덮어써서 클라이언트가 옛 배율 크기로 남는다 (측정으로 확인).
+	m_dpi_layout_pending = true;
+	PostMessage(Message_ApplyDpiLayout);
+	return 0;
+}
+
+LRESULT CSCDeskToolsDlg::on_message_ApplyDpiLayout(WPARAM /*wParam*/, LPARAM /*lParam*/)
+{
+	//마우스 드래그 중이면 이 메시지도 modal move loop 안에서 처리된다 — 여기서 크기를 잡아봐야
+	//루프가 끝나면서 다시 덮어쓴다. 그 경우는 OnExitSizeMove 가 맡는다.
+	if (m_in_size_move)
+		return 0;
+
+	m_dpi_layout_pending = false;
+	apply_dpi_layout(NULL);	//위치는 그대로 두고 크기 / 폰트 / 자식 배치만 다시 잡는다.
+	return 0;
+}
+
+void CSCDeskToolsDlg::OnEnterSizeMove()
+{
+	m_in_size_move = true;
+	CDialogEx::OnEnterSizeMove();
+}
+
+void CSCDeskToolsDlg::OnExitSizeMove()
+{
+	m_in_size_move = false;
+	CDialogEx::OnExitSizeMove();
+
+	//드래그로 다른 배율 모니터에 넘어간 경우. 루프가 끝난 지금이 크기를 잡을 수 있는 첫 시점이다.
+	if (m_dpi_layout_pending)
+	{
+		m_dpi_layout_pending = false;
+		apply_dpi_layout(NULL);
+	}
+}
+
 void CSCDeskToolsDlg::build_buttons()
 {
 	//m_favorites 의 ID 들을 순서대로 텍스트 버튼으로 배치. ID 는 ON_COMMAND 가 자동 처리.
@@ -367,13 +504,13 @@ void CSCDeskToolsDlg::build_buttons()
 	CRect rc_client;
 	GetClientRect(rc_client);
 
-	const int margin = 14;
-	const int gap_x	= 10;
-	const int gap_y	= 10;
+	const int margin = scaled(14);
+	const int gap_x	= scaled(10);
+	const int gap_y	= scaled(10);
 	const int cols	= 2;
 	const int btn_w	= (rc_client.Width() - margin * 2 - gap_x * (cols - 1)) / cols;
 	//두 줄 캡션 (기능명 / 글로벌 단축키) 수용 위해 한 줄짜리 36 → 50.
-	const int btn_h	= 50;
+	const int btn_h	= scaled(50);
 
 	for (size_t i = 0; i < m_favorites.size(); ++i)
 	{
@@ -400,7 +537,7 @@ void CSCDeskToolsDlg::build_buttons()
 		btn->Create(caption,
 			WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_MULTILINE,
 			rc_btn, this, tool->id);
-		btn->SetFont(GetFont());
+		btn->SetFont(&m_font_ui);
 		m_buttons_favorite.push_back(std::move(btn));
 	}
 }
@@ -413,9 +550,9 @@ void CSCDeskToolsDlg::build_exit_button()
 	CRect rc_client;
 	GetClientRect(rc_client);
 
-	const int margin = 14;
-	const int btn_w	= 80;
-	const int btn_h	= 32;
+	const int margin = scaled(14);
+	const int btn_w	= scaled(80);
+	const int btn_h	= scaled(32);
 
 	CRect rc_btn(
 		rc_client.right	- margin - btn_w,
@@ -426,7 +563,7 @@ void CSCDeskToolsDlg::build_exit_button()
 	m_button_exit.Create(_T("종료"),
 		WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
 		rc_btn, this, ID_SC_EXIT);
-	m_button_exit.SetFont(GetFont());
+	m_button_exit.SetFont(&m_font_ui);
 }
 
 void CSCDeskToolsDlg::build_clipboard_only_checkbox()
@@ -434,8 +571,8 @@ void CSCDeskToolsDlg::build_clipboard_only_checkbox()
 	CRect rc_client;
 	GetClientRect(rc_client);
 
-	const int margin = 14;
-	const int check_h = 20;
+	const int margin = scaled(14);
+	const int check_h = scaled(20);
 
 	CRect rc_check(
 		rc_client.left	+ margin,
@@ -446,7 +583,7 @@ void CSCDeskToolsDlg::build_clipboard_only_checkbox()
 	m_check_clipboard_only.Create(_T("캡처 시 클립보드로만 저장(플로팅 창으로 띠우지 않음)"),
 		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
 		rc_check, this, id_check_clipboard_only);
-	m_check_clipboard_only.SetFont(GetFont());
+	m_check_clipboard_only.SetFont(&m_font_ui);
 	m_check_clipboard_only.SetCheck(m_clipboard_only ? BST_CHECKED : BST_UNCHECKED);
 }
 

@@ -8,11 +8,16 @@
 #include <dwrite.h>
 #pragma comment(lib, "dwrite.lib")
 
+#include "Common/win_compat/dpi.h"
+
 IMPLEMENT_DYNAMIC(CSCRulerDlg, CSCFrozenOverlayDlg)
 
 BEGIN_MESSAGE_MAP(CSCRulerDlg, CSCFrozenOverlayDlg)
 END_MESSAGE_MAP()
 
+//20260904 by claude. 96 DPI 기준 UI 크기. 실제 사용 시 scaled() 로 환산한다.
+//tick 간격(10/50/100)은 여기 없다 — 그건 UI 가 아니라 "몇 픽셀마다 눈금" 이라는 측정 단위라
+//물리 픽셀 그대로여야 한다. 눈금 길이만 UI 다.
 namespace
 {
 	const int handle_radius	= 7;
@@ -52,7 +57,7 @@ namespace
 
 CSCRulerDlg::HitTarget CSCRulerDlg::hit_test(CPoint pt) const
 {
-	const double r2 = double(handle_hit_radius) * handle_hit_radius;
+	const double r2 = double(scaled(handle_hit_radius)) * scaled(handle_hit_radius);
 	if (dist_sq(to_point(pt), m_start) <= r2)
 		return ht_start;
 	if (dist_sq(to_point(pt), m_end) <= r2)
@@ -66,7 +71,7 @@ bool CSCRulerDlg::on_line(CPoint pt) const
 {
 	double t = 0.0;
 	double d = perpendicular_dist(m_start, m_end, to_point(pt), t);
-	return (t > 0.05 && t < 0.95 && d <= double(line_hit_dist));
+	return (t > 0.05 && t < 0.95 && d <= double(scaled(line_hit_dist)));
 }
 
 void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
@@ -176,7 +181,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		if (SUCCEEDED(hrf))
 			dwrite->CreateTextFormat(L"Segoe UI", NULL,
 				DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-				16.0f, L"", tf.GetAddressOf());
+				scaled_f(16.0f), L"", tf.GetAddressOf());
 		if (tf)
 		{
 			tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -187,12 +192,12 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.65f), br_back.GetAddressOf());
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_text.GetAddressOf());
 
-			const float w = 620.0f;
-			const float h = 32.0f;
+			const float w = scaled_f(620.0f);
+			const float h = scaled_f(32.0f);
 			const float full_w = float(m_virtual_screen.Width());
 			const float lx = (full_w - w) * 0.5f;
-			const float ly = 24.0f;
-			D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + w, ly + h), 6.0f, 6.0f };
+			const float ly = scaled_f(24.0f);
+			D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + w, ly + h), scaled_f(6.0f), scaled_f(6.0f) };
 			d2dc->FillRoundedRectangle(rr, br_back.Get());
 
 			CStringW msg;
@@ -219,7 +224,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_tick.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x00B894, 1.00f), br_handle_stroke.GetAddressOf());
 
-	d2dc->DrawLine(p_s, p_e, br_line.Get(), 2.0f);
+	d2dc->DrawLine(p_s, p_e, br_line.Get(), scaled_f(2.0f));
 
 	//tick mark — 라인을 따라 일정 간격마다 수직으로 짧은 선.
 	//두 패스: (1) 검은 tick 을 CommandList 에 그려 Gaussian blur effect 적용 → 부드러운 그림자.
@@ -233,12 +238,14 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		double nx = -uy;			//perpendicular (one side)
 		double ny =	ux;
 
+		//눈금 간격은 "몇 픽셀마다" 라는 측정 단위이므로 물리 픽셀 그대로 둔다.
+		//눈금 길이는 보이기 위한 크기라 DPI 로 환산한다.
 		const int step_minor = 10;
 		const int step_mid	= 50;
 		const int step_major = 100;
-		const int len_minor	= 4;
-		const int len_mid	= 7;
-		const int len_major	= 11;
+		const int len_minor	= scaled(4);
+		const int len_mid	= scaled(7);
+		const int len_major	= scaled(11);
 
 		const int total = int(length);
 		ticks.reserve(total / step_minor + 1);
@@ -272,7 +279,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			ComPtr<ID2D1SolidColorBrush> br_black;
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 1.00f), br_black.GetAddressOf());
 			for (const auto& t : ticks)
-				d2dc->DrawLine(t.base, t.tip, br_black.Get(), 1.5f);
+				d2dc->DrawLine(t.base, t.tip, br_black.Get(), scaled_f(1.5f));
 
 			d2dc->SetTarget(prev_target.Get());
 			cmd_ticks->Close();
@@ -282,7 +289,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			{
 				blur->SetInput(0, cmd_ticks.Get());
 				//STANDARD_DEVIATION 픽셀 단위. 1.6 정도면 약 5px 폭의 부드러운 후광.
-				blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, 1.6f);
+				blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, scaled_f(1.6f));
 				d2dc->DrawImage(blur.Get());
 			}
 		}
@@ -290,7 +297,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 
 	//Pass 2: 흰 tick 본체.
 	for (const auto& t : ticks)
-		d2dc->DrawLine(t.base, t.tip, br_tick.Get(), 1.0f);
+		d2dc->DrawLine(t.base, t.tip, br_tick.Get(), scaled_f(1.0f));
 
 	//길이 + 각도 라벨. 라인 중점에서 수직 방향으로 약간 떨어뜨림.
 	{
@@ -301,7 +308,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		if (SUCCEEDED(hrf))
 			dwrite->CreateTextFormat(L"Segoe UI", NULL,
 				DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-				16.0f, L"", tf.GetAddressOf());
+				scaled_f(16.0f), L"", tf.GetAddressOf());
 		if (tf)
 		{
 			tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -310,16 +317,20 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			//각도는 화면 좌표계 (y 아래) 기준 atan2 → 일반 수학 좌표 (y 위) 로 부호 뒤집어 표시.
 			double angle_deg = -atan2(dy, dx) * 180.0 / pi;
 
-			//앱이 DPI Unaware 라 GetDeviceCaps(LOGPIXELSX) 가 OS 스케일과 무관하게 96 반환.
-			//어떤 모니터 스케일에서도 동일 length → 동일 cm 로 일관. 명시 상수로 의도 표시.
-			const double dpi = 96.0;
+			//20260904 by claude. 예전엔 앱이 DPI Unaware 라 화면 배율과 무관하게 96 으로 고정해도 맞았다.
+			//지금은 Per-Monitor 인식이라 length 가 물리 픽셀이므로, 실제 cm 를 내려면 패널의 물리 DPI 가 필요하다.
+			//MDT_RAW_DPI = 패널이 EDID 로 보고한 실제 DPI (배율 설정이 섞인 effective DPI 가 아니다).
+			//모니터가 물리 크기를 잘못 보고하면 값이 어긋날 수 있고, 조회 실패 시 96 으로 떨어진다.
+			const double dpi = double(win_compat::dpi::for_point(
+				CPoint(int(p_s.x) + m_virtual_screen.left, int(p_s.y) + m_virtual_screen.top),
+				win_compat::dpi::dpi_raw));
 			const double length_cm = length / dpi * 2.54;
 
 			WCHAR text[96];
 			swprintf_s(text, L"%.1f px (%.2f cm)   %.1f°", length, length_cm, angle_deg);
 
-			const float lw = 250.0f;
-			const float lh = 28.0f;
+			const float lw = scaled_f(250.0f);
+			const float lh = scaled_f(28.0f);
 
 			//중점 기준, 라인의 수직 방향(왼쪽) 으로 lh + 라벨 절반 만큼 옮김.
 			float cx = (p_s.x + p_e.x) * 0.5f;
@@ -340,8 +351,8 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 				}
 			}
 
-			float lx = cx + nx * 22.0f - lw * 0.5f;
-			float ly = cy + ny * 22.0f - lh * 0.5f;
+			float lx = cx + nx * scaled_f(22.0f) - lw * 0.5f;
+			float ly = cy + ny * scaled_f(22.0f) - lh * 0.5f;
 
 			//화면 가장자리 클램프.
 			const float full_w = float(m_virtual_screen.Width());
@@ -356,7 +367,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.78f), br_lbl_back.GetAddressOf());
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_lbl_text.GetAddressOf());
 
-			D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + lw, ly + lh), 6.0f, 6.0f };
+			D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + lw, ly + lh), scaled_f(6.0f), scaled_f(6.0f) };
 			d2dc->FillRoundedRectangle(rr, br_lbl_back.Get());
 			d2dc->DrawText(text, UINT32(wcslen(text)), tf.Get(),
 				D2D1::RectF(lx, ly, lx + lw, ly + lh),
@@ -369,8 +380,9 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	//이 어려운 문제 해소 — 원 안쪽은 비워 라인 끝점과 픽셀이 그대로 보임.
 	auto draw_handle = [&](D2D1_POINT_2F p)
 	{
-		D2D1_ELLIPSE e = D2D1::Ellipse(p, float(handle_radius), float(handle_radius));
-		d2dc->DrawEllipse(e, br_handle_stroke.Get(), 1.5f);
+		const float r = scaled_f(float(handle_radius));
+		D2D1_ELLIPSE e = D2D1::Ellipse(p, r, r);
+		d2dc->DrawEllipse(e, br_handle_stroke.Get(), scaled_f(1.5f));
 	};
 	draw_handle(p_s);
 	draw_handle(p_e);

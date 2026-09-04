@@ -12,6 +12,7 @@ IMPLEMENT_DYNAMIC(CSCProtractorDlg, CSCFrozenOverlayDlg)
 BEGIN_MESSAGE_MAP(CSCProtractorDlg, CSCFrozenOverlayDlg)
 END_MESSAGE_MAP()
 
+//20260904 by claude. 96 DPI 기준 UI 크기. 실제 사용 시 scaled() 로 환산한다.
 namespace
 {
 	const int handle_radius	= 7;
@@ -52,7 +53,7 @@ double CSCProtractorDlg::calc_angle_degrees() const
 
 CSCProtractorDlg::HitTarget CSCProtractorDlg::hit_test(CPoint pt) const
 {
-	const double r2 = double(handle_hit_radius) * handle_hit_radius;
+	const double r2 = double(scaled(handle_hit_radius)) * scaled(handle_hit_radius);
 	if (dist_sq(to_point(pt), m_vertex) <= r2)
 		return ht_vertex;
 	if (dist_sq(to_point(pt), m_arm_a) <= r2)
@@ -202,7 +203,7 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		if (SUCCEEDED(hrf))
 			dwrite->CreateTextFormat(L"Segoe UI", NULL,
 				DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-				16.0f, L"", tf.GetAddressOf());
+				scaled_f(16.0f), L"", tf.GetAddressOf());
 		if (tf)
 		{
 			tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -213,12 +214,12 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.65f), br_back.GetAddressOf());
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_text.GetAddressOf());
 
-			const float w = 700.0f;
-			const float h = 32.0f;
+			const float w = scaled_f(700.0f);
+			const float h = scaled_f(32.0f);
 			const float full_w = float(m_virtual_screen.Width());
 			const float lx = (full_w - w) * 0.5f;
-			const float ly = 24.0f;
-			D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + w, ly + h), 6.0f, 6.0f };
+			const float ly = scaled_f(24.0f);
+			D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + w, ly + h), scaled_f(6.0f), scaled_f(6.0f) };
 			d2dc->FillRoundedRectangle(rr, br_back.Get());
 
 			CStringW msg;
@@ -244,10 +245,10 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	const D2D1_POINT_2F p_a = m_arm_a;
 	const D2D1_POINT_2F p_b = m_arm_b;
 
-	d2dc->DrawLine(p_v, p_a, br_arm.Get(), 2.0f);
+	d2dc->DrawLine(p_v, p_a, br_arm.Get(), scaled_f(2.0f));
 
 	if (m_phase != Phase::phase_place_arm_a)
-		d2dc->DrawLine(p_v, p_b, br_arm.Get(), 2.0f);
+		d2dc->DrawLine(p_v, p_b, br_arm.Get(), scaled_f(2.0f));
 
 	if (m_phase != Phase::phase_place_arm_a)
 	{
@@ -263,12 +264,12 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			double angle_a = atan2(ay, ax);
 			double angle_b = atan2(by, bx);
 
-			double arc_radius = double(arc_radius_default);
+			double arc_radius = double(scaled(arc_radius_default));
 			double max_radius = (la < lb ? la : lb) * 0.6;
 			if (arc_radius > max_radius)
 				arc_radius = max_radius;
-			if (arc_radius < 16.0)
-				arc_radius = 16.0;
+			if (arc_radius < scaled(16))
+				arc_radius = scaled(16);
 
 			double sweep = angle_b - angle_a;
 			while (sweep <	0.0)	sweep += 2.0 * pi;
@@ -311,7 +312,7 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 					sink->Close();
 
 					d2dc->FillGeometry(arc_geom.Get(), br_arc_fill.Get());
-					d2dc->DrawGeometry(arc_geom.Get(), br_arc.Get(), 1.5f);
+					d2dc->DrawGeometry(arc_geom.Get(), br_arc.Get(), scaled_f(1.5f));
 				}
 			}
 
@@ -322,7 +323,7 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			if (SUCCEEDED(hrf))
 				dwrite->CreateTextFormat(L"Segoe UI", NULL,
 					DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-					18.0f, L"", tf.GetAddressOf());
+					scaled_f(18.0f), L"", tf.GetAddressOf());
 			if (tf)
 			{
 				tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -333,12 +334,12 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 				swprintf_s(text, L"%.1f°", angle_deg);
 
 				double mid = angle_start + sweep * 0.5;
-				double label_dist = arc_radius + 28.0;
-				float lx = float(p_v.x + cos(mid) * label_dist) - 50.0f;
-				float ly = float(p_v.y + sin(mid) * label_dist) - 14.0f;
+				double label_dist = arc_radius + scaled(28);
+				float lx = float(p_v.x + cos(mid) * label_dist) - scaled_f(50.0f);
+				float ly = float(p_v.y + sin(mid) * label_dist) - scaled_f(14.0f);
 
-				const float lw = 100.0f;
-				const float lh = 28.0f;
+				const float lw = scaled_f(100.0f);
+				const float lh = scaled_f(28.0f);
 				const float full_w = float(m_virtual_screen.Width());
 				const float full_h = float(m_virtual_screen.Height());
 				if (lx < 0)	lx = 0;
@@ -351,7 +352,7 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 				d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.78f), br_lbl_back.GetAddressOf());
 				d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_lbl_text.GetAddressOf());
 
-				D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + lw, ly + lh), 6.0f, 6.0f };
+				D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + lw, ly + lh), scaled_f(6.0f), scaled_f(6.0f) };
 				d2dc->FillRoundedRectangle(rr, br_lbl_back.Get());
 				d2dc->DrawText(text, UINT32(wcslen(text)), tf.Get(),
 					D2D1::RectF(lx, ly, lx + lw, ly + lh),
@@ -365,8 +366,9 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	//— 줄자와 동일 패턴.
 	auto draw_handle = [&](D2D1_POINT_2F p)
 	{
-		D2D1_ELLIPSE e = D2D1::Ellipse(p, float(handle_radius), float(handle_radius));
-		d2dc->DrawEllipse(e, br_handle_stroke.Get(), 1.5f);
+		const float r = scaled_f(float(handle_radius));
+		D2D1_ELLIPSE e = D2D1::Ellipse(p, r, r);
+		d2dc->DrawEllipse(e, br_handle_stroke.Get(), scaled_f(1.5f));
 	};
 
 	draw_handle(p_v);

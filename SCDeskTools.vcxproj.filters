@@ -126,6 +126,12 @@
     <ClInclude Include="..\Common\data_structure\SCParagraph\SCParagraph.h">
       <Filter>Common</Filter>
     </ClInclude>
+    <ClInclude Include="..\Common\win_compat\dpi.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Common\win_compat\dwm.h">
+      <Filter>Common</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="SCDeskTools.cpp">

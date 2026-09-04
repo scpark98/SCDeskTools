@@ -55,7 +55,7 @@ CSCRegionCaptureDlg::HitTarget CSCRegionCaptureDlg::hit_test(CPoint pt) const
 	if (m_phase != Phase::phase_edit)
 		return ht_none;
 
-	const int E = 6;
+	const int E = scaled(6);
 	const CRect& r = m_edit_rect;
 
 	const bool nL = ::abs(pt.x - r.left)	<= E;
@@ -303,16 +303,16 @@ void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	draw_rect(d2dc, CRect(r, t, full_w, b),			Gdiplus::Color::Transparent, cr_mask, 0.0f, 0.0f);
 
 	//ROI 보더.
-	draw_rect(d2dc, CRect(l, t, r, b), cr_stroke, Gdiplus::Color::Transparent, 2.0f, 0.0f);
+	draw_rect(d2dc, CRect(l, t, r, b), cr_stroke, Gdiplus::Color::Transparent, scaled_f(2.0f), 0.0f);
 
 	if (m_phase == Phase::phase_edit)
 	{
 		//변 hit-test 는 유지(투명 edge resize) 하되 시각 표시는 4 코너 핸들만 — 모던 크롭툴 추세.
-		const int HS = 5;
+		const int HS = scaled(5);
 		auto draw_handle = [&](int cx, int cy)
 		{
 			draw_rect(d2dc, CRect(cx - HS, cy - HS, cx + HS, cy + HS),
-				cr_stroke, cr_handle_fill, 1.5f, 0.0f);
+				cr_stroke, cr_handle_fill, scaled_f(1.5f), 0.0f);
 		};
 		draw_handle(l, t);
 		draw_handle(r, t);
@@ -320,13 +320,13 @@ void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		draw_handle(r, b);
 	}
 
-	const int margin = 4;
-	const int line_height = 21;		//font_size 14 * line_spacing 1.5 ≈ DWRITE TextMetrics height (Common draw_text 내부)
+	const int margin = scaled(4);
+	const int line_height = scaled(21);		//font_size 14 * line_spacing 1.5 ≈ DWRITE TextMetrics height (Common draw_text 내부)
 
 	WCHAR coord_tl[64];
 	swprintf_s(coord_tl, L"(%d, %d)", rc_show.left + m_virtual_screen.left, rc_show.top + m_virtual_screen.top);
 	draw_text(d2dc, CRect(l, 0, full_w, t - margin), coord_tl,
-		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		_T("Segoe UI"), scaled_f(14.0f), DWRITE_FONT_WEIGHT_SEMI_BOLD,
 		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
 		1.0f, DT_LEFT | DT_BOTTOM);
 
@@ -339,14 +339,14 @@ void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	else
 		swprintf_s(text_size, L"%d x %d", sw, sh);
 	draw_text(d2dc, CRect(l, t, r, b), text_size,
-		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		_T("Segoe UI"), scaled_f(14.0f), DWRITE_FONT_WEIGHT_SEMI_BOLD,
 		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
 		1.0f, DT_CENTER | DT_VCENTER);
 
 	WCHAR coord_br[64];
 	swprintf_s(coord_br, L"(%d, %d)", rc_show.right + m_virtual_screen.left, rc_show.bottom + m_virtual_screen.top);
 	draw_text(d2dc, CRect(0, b + margin, r, full_h), coord_br,
-		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		_T("Segoe UI"), scaled_f(14.0f), DWRITE_FONT_WEIGHT_SEMI_BOLD,
 		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
 		1.0f, DT_RIGHT | DT_TOP);
 
@@ -354,7 +354,7 @@ void CSCRegionCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		? L"Enter or 더블클릭 : 캡처    ESC or 우클릭 : 취소\n방향키로 이동 가능 (Shift키로 미세 조정 가능)"
 		: L"Shift키를 누른 상태에서 영역선택 완료 시 수동 조정모드 가능";
 	draw_text(d2dc, CRect(center_x - full_w, b + margin + line_height + margin, center_x + full_w, full_h), hint,
-		_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+		_T("Segoe UI"), scaled_f(14.0f), DWRITE_FONT_WEIGHT_SEMI_BOLD,
 		cr_label_text, cr_label_outline, cr_label_shadow, Gdiplus::Color::Transparent,
 		1.0f, DT_CENTER | DT_TOP);
 }

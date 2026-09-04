@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  20260904 by claude.
+  VS 의 프로젝트 속성 "DPI 인식 = 모니터 단위 높은 DPI 인식" (EnableDpiAwareness=PerMonitorHighDPIAware) 은
+  구형 태그 <dpiAware>True/PM</dpiAware> 하나만 넣는다. 그건 Per-Monitor "V1" 이고,
+  V1 에는 비클라이언트 영역(캡션바 · 캡션 버튼 · 프레임) 자동 스케일링이 없다.
+  그래서 배율이 다른 모니터로 창을 옮겨도 캡션은 시스템 DPI(=주 모니터 배율) 크기로 고정되어,
+  100% 모니터에서 175% 크기의 캡션 버튼이 자리를 먹고 제목이 잘렸다.
+
+  아래 2016 스키마의 <dpiAwareness> 가 Per-Monitor V2 를 켠다. V2 가 추가로 해주는 것:
+    - 비클라이언트 영역 자동 스케일링 (이 파일을 넣은 이유)
+    - 다이얼로그 자동 스케일링
+    - comctl32 v6 컨트롤 자동 스케일링
+  Win10 1703+ 는 이 태그를, 그 이전 OS 는 vcxproj 가 넣는 <dpiAware> 를 읽는다. 둘은 공존한다.
+  "PerMonitorV2, PerMonitor" 처럼 나열하면 OS 가 지원하는 첫 항목을 고른다.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>

@@ -50,6 +50,17 @@ protected:
 	HBITMAP			m_frozen_hbmp = NULL;
 	CRect			m_virtual_screen = {};
 
+	//20260904 by claude. 이 오버레이가 그리는 UI(핸들, 라벨, 테두리 두께 등)의 크기 기준.
+	//앱이 Per-Monitor DPI 인식이라 물리 픽셀을 직접 다룬다 — 코드에 적은 96 DPI 기준 픽셀을
+	//그대로 쓰면 175% 모니터에서 57% 크기로 보인다.
+	//창이 가상 데스크톱 전체를 덮어 "이 창의 모니터" 가 모호하므로, 사용자가 도구를 띄운
+	//시점의 커서 위치 모니터를 기준으로 잡는다 (혼합 DPI 환경에서 다른 모니터로 넘어가도 유지).
+	//주의: 화면 픽셀 자체를 다루는 값(캡처 영역 좌표, 줄자가 재는 길이)에는 절대 쓰지 말 것.
+	UINT			m_dpi = 96;
+
+	int				scaled(int px_at_96dpi) const;
+	float			scaled_f(float px_at_96dpi) const;
+
 	void			finish();	//파생이 결과 확정 후 호출. SetCapture 해제 + DestroyWindow.
 
 	//===== 파생이 override 가능한 hook =====

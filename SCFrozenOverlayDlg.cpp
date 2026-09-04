@@ -4,6 +4,7 @@
 #include "SCFrozenOverlayDlg.h"
 #include "Common/Functions.h"
 #include "Common/cursor_helpers.h"
+#include "Common/win_compat/dpi.h"
 
 #include <math.h>
 
@@ -34,8 +35,22 @@ CSCFrozenOverlayDlg::~CSCFrozenOverlayDlg()
 	}
 }
 
+int CSCFrozenOverlayDlg::scaled(int px_at_96dpi) const
+{
+	return win_compat::dpi::scale(px_at_96dpi, m_dpi);
+}
+
+float CSCFrozenOverlayDlg::scaled_f(float px_at_96dpi) const
+{
+	return win_compat::dpi::scale_f(px_at_96dpi, m_dpi);
+}
+
 bool CSCFrozenOverlayDlg::create(CWnd* parent)
 {
+	POINT pt_cursor = {};
+	::GetCursorPos(&pt_cursor);
+	m_dpi = win_compat::dpi::for_point(pt_cursor);
+
 	m_virtual_screen.left	= ::GetSystemMetrics(SM_XVIRTUALSCREEN);
 	m_virtual_screen.top	= ::GetSystemMetrics(SM_YVIRTUALSCREEN);
 	m_virtual_screen.right	= m_virtual_screen.left + ::GetSystemMetrics(SM_CXVIRTUALSCREEN);

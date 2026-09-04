@@ -155,7 +155,7 @@ void CSCFreehandCaptureDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		D2D1::ColorF(65 / 255.0f, 105 / 255.0f, 225 / 255.0f, 1.0f), &pStroke);
 	if (pStroke)
 	{
-		d2dc->DrawGeometry(pPoly, pStroke, 2.0f);
+		d2dc->DrawGeometry(pPoly, pStroke, scaled_f(2.0f));
 		pStroke->Release();
 	}
 

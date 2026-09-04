@@ -122,5 +122,5 @@ void CSCCaptureOverlayDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0x4169E1, 0.18f), br_fill.GetAddressOf());
 
 	d2dc->FillRectangle(r, br_fill.Get());
-	d2dc->DrawRectangle(r, br_stroke.Get(), 3.0f);
+	d2dc->DrawRectangle(r, br_stroke.Get(), scaled_f(3.0f));
 }
