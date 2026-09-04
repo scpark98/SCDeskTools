@@ -56,12 +56,6 @@ private:
 		cmd_back_custom = 9,
 		cmd_interp_nearest = 10,
 		cmd_interp_linear = 11,
-
-		//캡처 직후 "이게 방금 캡처한 창" 임을 알리는 테두리 깜빡임.
-		//원본과 같은 자리에 같은 크기로 뜨면 구분이 안 되므로 위치 오프셋 / 그림자와 함께 쓴다.
-		timer_border_flash = 1,
-		border_flash_interval = 160,	//ms
-		border_flash_steps = 2,		//켜짐 → 꺼짐 → 켜짐 → 꺼짐 (2회 깜빡)
 	};
 
 	CSCD2Context	m_d2;
@@ -79,9 +73,6 @@ private:
 	//배경 투명 문제 회피: round 코너 바깥은 그냥 안 그려 이미지/letterbox 가 자연스럽게 비침.
 	bool			m_close_btn_hover = false;	//마우스가 버튼 영역 위 — 호버 시점에만 가시화
 	bool			m_close_btn_pressed = false;	//LButtonDown 으로 시작된 클릭 진행 중
-
-	bool			m_border_flash_on = false;	//지금 프레임에 알림 테두리를 그릴지
-	int				m_border_flash_step = 0;	//border_flash_steps 까지 세면 타이머 종료
 
 	bool			m_show_info = true;			//크기 / 비율 / 마우스 픽셀 좌표 표시. 가운데 버튼으로 토글, 레지스트리 유지
 
@@ -107,6 +98,13 @@ private:
 	Gdiplus::PointF	m_hover_pixel = Gdiplus::PointF(-1.0f, -1.0f);
 
 	bool			init_with_image(const BYTE* bgra, int w, int h, const POINT* pos_screen);
+
+	//이미지를 100% 로 보여줄 client 크기를 구한다. 기준 모니터의 2/3 를 넘으면 비율을 유지한 채 줄인다.
+	//반환값 = 그 크기에 대응하는 표시 배율 (1.0 = 100%).
+	double			calc_client_size_for_image(const CRect& rc_monitor, int& cx, int& cy) const;
+	void			apply_display_scale(double scale);
+	//client 가 정확히 cx x cy 가 되도록 창을 리사이즈. pos_client_screen 을 주면 client 좌상단을 그 좌표에 둔다.
+	void			resize_client_to(int cx, int cy, const POINT* pos_client_screen);
 	void			show_context_menu(CPoint pt_screen);
 	void			apply_back_setting(DWORD value);	//back_default / back_zigzag / ARGB 를 m_img_dlg 에 반영
 	DWORD			get_back_setting() const;			//현재 상태를 같은 표현으로 되돌려줌 (메뉴 체크 표시용)
@@ -115,7 +113,6 @@ private:
 	CRect			get_close_button_rect() const;	//닫기 버튼 client 좌표 rect (OnSize / OnNcHitTest / paint / click 공유)
 
 	afx_msg void	OnSize(UINT nType, int cx, int cy);
-	afx_msg void	OnTimer(UINT_PTR nIDEvent);
 
 	//OnNcHitTest 가 대부분의 client 영역을 HTCAPTION 으로 돌려주므로 가운데 클릭은 NC 경로로 온다.
 	//닫기 버튼 영역만 HTCLIENT 라 그쪽은 OnMButtonDown 이 받는다. 둘 다 toggle_info() 로 모인다.

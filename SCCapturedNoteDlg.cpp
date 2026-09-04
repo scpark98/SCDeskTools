@@ -200,7 +200,6 @@ IMPLEMENT_DYNAMIC(CSCCapturedNoteDlg, CDialog)
 
 BEGIN_MESSAGE_MAP(CSCCapturedNoteDlg, CDialog)
 	ON_WM_SIZE()
-	ON_WM_TIMER()
 	ON_WM_NCMBUTTONDOWN()
 	ON_WM_MBUTTONDOWN()
 	ON_WM_NCHITTEST()
@@ -233,6 +232,73 @@ CSCCapturedNoteDlg* CSCCapturedNoteDlg::spawn(const BYTE* bgra_top_down, int w, 
 	return p;
 }
 
+double CSCCapturedNoteDlg::calc_client_size_for_image(const CRect& rc_monitor, int& cx, int& cy) const
+{
+	const int max_cx = rc_monitor.Width() * 2 / 3;
+	const int max_cy = rc_monitor.Height() * 2 / 3;
+
+	double scale = 1.0;
+	if (m_img_w > max_cx)
+		scale = static_cast<double>(max_cx) / m_img_w;
+	if (m_img_h * scale > max_cy)
+		scale = static_cast<double>(max_cy) / m_img_h;
+
+	cx = static_cast<int>(m_img_w * scale + 0.5);
+	cy = static_cast<int>(m_img_h * scale + 0.5);
+	if (cx < 80) cx = 80;
+	if (cy < 60) cy = 60;
+
+	return scale;
+}
+
+//20260904 by claude. zoom(double) 의 하한이 0.2 라, 그보다 더 줄여야 하는 초대형 캡처(멀티모니터 전체 등)만
+//fit2ctrl 에 맡긴다 — 그 경우 고정 배율로 두면 이미지가 창 밖으로 잘린다.
+void CSCCapturedNoteDlg::apply_display_scale(double scale)
+{
+	if (scale >= 0.2)
+		m_img_dlg.zoom(scale);
+	else
+		m_img_dlg.fit2ctrl(true);
+}
+
+//20260904 by claude. 한 번 재서 한 번 보정하면 어긋난다 — CreateEx 시점의 WM_NCCALCSIZE 는 아직 이 클래스의
+//핸들러를 타지 않아 기본 프레임(위/아래 7px)으로 잡히는데, 그 뒤로는 OnNcCalcSize 의 "위쪽 NC 는 0" 규칙이
+//적용된다. 첫 측정값으로 보정하면 그 차이만큼 client 가 커진 채 남는다
+//(실측: 208 요청 → client 214, 이미지 위아래에 3px 씩 빈 배경이 보였다).
+//프레임 규칙을 코드로 흉내내지 말고, 남은 차이만큼 다시 보정해 수렴시킨다.
+void CSCCapturedNoteDlg::resize_client_to(int cx, int cy, const POINT* pos_client_screen)
+{
+	for (int i = 0; i < 3; ++i)
+	{
+		CRect rc_window, rc_client;
+		GetWindowRect(rc_window);
+		GetClientRect(rc_client);
+
+		CPoint pt_client_origin(0, 0);
+		ClientToScreen(&pt_client_origin);
+
+		int win_x = rc_window.left;
+		int win_y = rc_window.top;
+		if (pos_client_screen)
+		{
+			win_x = pos_client_screen->x - (pt_client_origin.x - rc_window.left);
+			win_y = pos_client_screen->y - (pt_client_origin.y - rc_window.top);
+		}
+
+		const int diff_cx = cx - rc_client.Width();
+		const int diff_cy = cy - rc_client.Height();
+
+		if (diff_cx == 0 && diff_cy == 0 && win_x == rc_window.left && win_y == rc_window.top)
+			break;
+
+		SetWindowPos(NULL,
+			win_x, win_y,
+			rc_window.Width() + diff_cx,
+			rc_window.Height() + diff_cy,
+			SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+}
+
 bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const POINT* pos_screen)
 {
 	if (!bgra || w <= 0 || h <= 0)
@@ -250,45 +316,38 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 		::LoadCursor(NULL, IDC_ARROW),
 		reinterpret_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)));
 
-	//시작 사이즈 = 이미지 사이즈(=100%), 단 화면의 2/3 를 넘으면 ratio 보존 축소.
+	//시작 배율 = 100%, 단 화면의 2/3 를 넘으면 ratio 보존 축소.
 	//모니터 전체 캡처처럼 화면을 거의 채우는 이미지를 100% 로 띄우면 원본과 겹쳐 구분이 안 되고
 	//노트를 옮기거나 닫기도 불편하다. 그 크기부터는 배율을 낮춰 "따로 뜬 창" 으로 보이게 한다.
 	//여기서 구하는 값은 창 크기가 아니라 client 크기다 — WS_SIZEBOX 프레임 두께만큼 창을 더 키워야
 	//이미지가 100% 로 그려진다. 창 크기로 잡으면 프레임이 먹은 만큼 축소돼 보인다 (아래 SetWindowPos).
-	const int cx_screen = ::GetSystemMetrics(SM_CXSCREEN);
-	const int cy_screen = ::GetSystemMetrics(SM_CYSCREEN);
-	const int max_cx = cx_screen * 2 / 3;
-	const int max_cy = cy_screen * 2 / 3;
+	//
+	//20260904 by claude. 기준 모니터는 노트가 뜰 자리의 모니터다. GetSystemMetrics(SM_CXSCREEN) 은
+	//주 모니터만 알려줘서, 더 큰 다른 모니터에서 캡처해도 주 모니터의 2/3 로 잘렸다.
+	CPoint pt_anchor;
+	if (pos_screen)
+		pt_anchor = CPoint(pos_screen->x, pos_screen->y);
+	else
+		::GetCursorPos(&pt_anchor);
 
-	int win_cx = w;
-	int win_cy = h;
-	if (win_cx > max_cx)
-	{
-		win_cy = static_cast<int>(static_cast<double>(win_cy) * max_cx / win_cx);
-		win_cx = max_cx;
-	}
-	if (win_cy > max_cy)
-	{
-		win_cx = static_cast<int>(static_cast<double>(win_cx) * max_cy / win_cy);
-		win_cy = max_cy;
-	}
-	if (win_cx < 80) win_cx = 80;
-	if (win_cy < 60) win_cy = 60;
+	const CRect rc_monitor = get_monitor_rect(get_monitor_index(pt_anchor.x, pt_anchor.y));
 
-	//원본과 정확히 겹쳐 놓으면 캡처본인지 원본인지 구분이 안 된다. 우하로 살짝 밀어 원본이
-	//뒤로 드러나게 한다 (그림자 + 등장 시 테두리 깜빡임과 함께 "방금 캡처한 창" 신호).
-	const int capture_offset = 16;
+	int win_cx = 0;
+	int win_cy = 0;
+	const double scale = calc_client_size_for_image(rc_monitor, win_cx, win_cy);
 
+	//20260904 by claude. 캡처한 자리에 그대로 겹쳐 띄운다. 예전엔 "원본과 구분되게" 우하로 16px 밀고
+	//테두리를 깜빡였는데, 창 그림자만으로 캡처본임이 충분히 드러나고 깜빡임은 flickering 처럼 보였다.
 	int x, y;
 	if (pos_screen)
 	{
-		x = pos_screen->x + capture_offset;
-		y = pos_screen->y + capture_offset;
+		x = pos_screen->x;
+		y = pos_screen->y;
 	}
 	else
 	{
-		x = (cx_screen - win_cx) / 2;
-		y = (cy_screen - win_cy) / 2;
+		x = rc_monitor.left + (rc_monitor.Width() - win_cx) / 2;
+		y = rc_monitor.top + (rc_monitor.Height() - win_cy) / 2;
 	}
 
 	//owner = main dialog. owned popup 으로 만들어 메인 다이얼로그 destroy 시 자동으로
@@ -315,22 +374,10 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 		return false;
 
 	//WS_SIZEBOX 프레임이 client 를 갉아먹어 이미지가 100% 로 안 그려진다.
-	//client 가 정확히 win_cx x win_cy 가 되도록 창을 키우고, client 좌상단이 의도한 좌표(x, y)에
-	//오도록 창 위치도 프레임 두께만큼 당긴다.
+	//client 가 정확히 win_cx x win_cy 가 되도록 창을 키우고, client 좌상단이 의도한 좌표(x, y)에 둔다.
 	{
-		CRect rc_window, rc_client;
-		GetWindowRect(rc_window);
-		GetClientRect(rc_client);
-
-		CPoint pt_client_origin(0, 0);
-		ClientToScreen(&pt_client_origin);
-
-		SetWindowPos(NULL,
-			x - (pt_client_origin.x - rc_window.left),
-			y - (pt_client_origin.y - rc_window.top),
-			win_cx + (rc_window.Width()  - rc_client.Width()),
-			win_cy + (rc_window.Height() - rc_client.Height()),
-			SWP_NOZORDER | SWP_NOACTIVATE);
+		const POINT pt_client = { x, y };
+		resize_client_to(win_cx, win_cy, &pt_client);
 	}
 
 	//WS_EX_LAYERED 활성화 ? Ctrl+wheel 로 창 투명도 조절 가능하게.
@@ -338,8 +385,14 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	SetLayeredWindowAttributes(0, m_alpha, LWA_ALPHA);
 
 	//borderless 창은 기본적으로 그림자가 없다. 1px extend 로 DWM 이 그림자를 계산하게 한다.
-	//원본 위에 떠 있다는 신호 — 오프셋과 함께 캡처본임을 알아보게 하는 장치.
+	//캡처본이 원본 위에 떠 있다는 유일한 신호이므로 그림자는 반드시 있어야 한다.
 	win_compat::dwm::extend_frame_into_client_area(m_hWnd);
+
+	//20260904 by claude. 테두리는 캡처본과 배경을 가르는 경계선이라 색을 OS 에 맡기지 않고 직접 준다
+	//— 기본값은 테마·강조색·활성/비활성에 따라 달라져 노트마다 외관이 달라진다.
+	//값 (66,67,70) 은 이 환경의 OS 기본 테두리를 흰 이미지로 실측해 얻은 색이다.
+	//밝은 회색(160,160,160)을 줘 봤더니 얇고 어둡던 선이 굵은 흰 선처럼 보여 되돌렸다.
+	win_compat::dwm::set_border_color(m_hWnd, RGB(66, 67, 70));
 
 	//컨테이너 자체 D2D 컨텍스트.
 	HRESULT hr = m_d2.init(m_hWnd, win_cx, win_cy);
@@ -370,12 +423,12 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 	apply_back_setting(load_note_back_setting());
 	m_show_info = load_note_show_info();
 
-	//client 를 이미지 크기로 맞춰 뒀으므로 fit2ctrl = 100%.
-	//20260904 by claude. 예전엔 CSCD2ImageDlg::create() 가 simple_mode 에서도 앱 전역 뷰어 배율을
-	//복원해서 직전 노트의 배율을 물려받았고, 이 호출이 그 우회였다. 그건 Common 쪽에서 고쳤으니
-	//(simple_mode 는 전역 설정을 읽지도 쓰지도 않는다) 이제 이 줄은 의도를 명시하는 역할만 한다.
-	m_img_dlg.fit2ctrl(true);
 	m_img_dlg.set_image(&m_image);
+
+	//20260904 by claude. 시작 모드는 fit2ctrl(창에 맞춤) 이 아니라 고정 배율이다.
+	//fit2ctrl 은 창을 리사이즈할 때마다 이미지를 늘려 픽셀이 뭉개진다 — 캡처를 보는 창에서는
+	//"지금 보는 것이 몇 배" 인지가 유지돼야 한다.
+	apply_display_scale(scale);
 
 	//post-paint 콜백 ? m_img_dlg 의 D2D 같은 frame 에 추가 오버레이 그림 (안티앨리어싱, z-order 충돌 없음).
 	//본문은 멤버 함수로 분리. 람다는 this 캡처하여 멤버 호출만 위임.
@@ -386,10 +439,6 @@ bool CSCCapturedNoteDlg::init_with_image(const BYTE* bgra, int w, int h, const P
 
 	ShowWindow(SW_SHOW);
 	SetForegroundWindow();
-
-	m_border_flash_on = true;
-	m_border_flash_step = 0;
-	SetTimer(timer_border_flash, border_flash_interval, NULL);
 
 	return true;
 }
@@ -411,26 +460,6 @@ void CSCCapturedNoteDlg::OnMButtonDown(UINT nFlags, CPoint point)
 {
 	toggle_info();
 	CDialog::OnMButtonDown(nFlags, point);
-}
-
-void CSCCapturedNoteDlg::OnTimer(UINT_PTR nIDEvent)
-{
-	if (nIDEvent == timer_border_flash)
-	{
-		m_border_flash_on = !m_border_flash_on;
-		++m_border_flash_step;
-
-		if (m_border_flash_step >= border_flash_steps)
-		{
-			KillTimer(timer_border_flash);
-			m_border_flash_on = false;
-		}
-
-		m_img_dlg.Invalidate(FALSE);
-		return;
-	}
-
-	CDialog::OnTimer(nIDEvent);
 }
 
 void CSCCapturedNoteDlg::OnSize(UINT nType, int cx, int cy)
@@ -501,7 +530,7 @@ LRESULT CSCCapturedNoteDlg::OnNcHitTest(CPoint point)
 void CSCCapturedNoteDlg::OnNcCalcSize(BOOL bCalcValidRects, NCCALCSIZE_PARAMS* lpncsp)
 {
 	//캡션바 없는 popup 은 default 처리가 상단에 흰색 NC 영역을 남긴다. 그 영역을 client 로 흡수해
-	//우리가 덮어 그린다. 남기는 것은 맨 바깥 테두리 1px 뿐.
+	//우리가 덮어 그린다.
 	//
 	//20260904 by claude. 원래 `rgrc[0].top -= 6` 이었는데 그 6 이 하드코딩이라 DPI 를 못 따라갔다.
 	//프레임 두께는 Per-Monitor V2 에서 모니터마다 다르다 — 100% 는 7px, 175% 는 11px.
@@ -509,6 +538,10 @@ void CSCCapturedNoteDlg::OnNcCalcSize(BOOL bCalcValidRects, NCCALCSIZE_PARAMS* l
 	//그래서 상수를 빼는 대신 *실제 프레임을 재서* 흡수한다:
 	//  진입 시 rgrc[0] = 새 윈도우 rect → DefWindowProc 이 제자리에서 client rect 로 바꾼다.
 	//  그 전후 차이가 곧 프레임 두께이므로, base 호출 뒤에 top 을 윈도우 top + 1 로 되돌리면 된다.
+	//
+	//20260904 by claude. **이 1px 을 없애면 창 그림자가 사라진다.** 위쪽 NC 를 0 으로 만들어 봤더니
+	//DWM 이 프레임 자체를 그리지 않게 되어 그림자까지 같이 사라졌다. 그래서 1px 은 유지한다.
+	//이 자리에 DWM 이 그리는 테두리 색은 init_with_image 에서 직접 지정한다.
 	const LONG window_top = (bCalcValidRects && lpncsp) ? lpncsp->rgrc[0].top : 0;
 
 	CDialog::OnNcCalcSize(bCalcValidRects, lpncsp);
@@ -627,41 +660,22 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 			break;
 		case cmd_zoom_100:
 		{
-			//100% = 이미지 픽셀 1:1 + 창 크기를 이미지 크기에 맞춰 자동 조정 (화면 80% 안 비율 유지).
-			m_img_dlg.fit2ctrl(false);
-			m_img_dlg.zoom(0);	//SCD2ImageDlg 컨벤션: zoom(int 0) = 원본 100% (ASee OnMenuZoomOrigin 과 동일)
-
-			int target_cx = m_img_w;
-			int target_cy = m_img_h;
-
-			const int cx_screen = ::GetSystemMetrics(SM_CXSCREEN);
-			const int cy_screen = ::GetSystemMetrics(SM_CYSCREEN);
-			const int max_cx = cx_screen * 80 / 100;
-			const int max_cy = cy_screen * 80 / 100;
-
-			if (target_cx > max_cx)
-			{
-				target_cy = int(double(target_cy) * max_cx / target_cx);
-				target_cx = max_cx;
-			}
-			if (target_cy > max_cy)
-			{
-				target_cx = int(double(target_cx) * max_cy / target_cy);
-				target_cy = max_cy;
-			}
-			if (target_cx < 80) target_cx = 80;
-			if (target_cy < 60) target_cy = 60;
-
-			//NC 오프셋 측정 ? client 가 정확히 target 이 되도록 window 크기 결정.
-			CRect rc_window, rc_client;
+			//100% = 이미지 픽셀 1:1 + 창 크기를 이미지 크기에 맞춰 자동 조정.
+			//20260904 by claude. 기준은 처음 뜰 때와 같다 — 노트가 지금 올라가 있는 모니터의 2/3.
+			//예전엔 주 모니터의 80% 였는데, 그러면 같은 이미지가 처음 뜰 때와 이 메뉴를 실행했을 때
+			//서로 다른 크기가 됐다.
+			CRect rc_window;
 			GetWindowRect(rc_window);
-			GetClientRect(rc_client);
-			const int nc_cx = rc_window.Width()	- rc_client.Width();
-			const int nc_cy = rc_window.Height() - rc_client.Height();
 
-			SetWindowPos(NULL, 0, 0,
-				target_cx + nc_cx, target_cy + nc_cy,
-				SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+			const CPoint pt_center = rc_window.CenterPoint();
+			const CRect rc_monitor = get_monitor_rect(get_monitor_index(pt_center.x, pt_center.y));
+
+			int target_cx = 0;
+			int target_cy = 0;
+			const double scale = calc_client_size_for_image(rc_monitor, target_cx, target_cy);
+
+			apply_display_scale(scale);
+			resize_client_to(target_cx, target_cy, NULL);
 			break;
 		}
 		case cmd_zoom_fit:
@@ -1051,15 +1065,6 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 			_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
 			Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,
 			1.0f, DT_RIGHT | DT_BOTTOM);
-	}
-
-	//캡처 직후 2회 깜빡이고 사라지는 알림 테두리. 상시 테두리로 두면 캡처 원본에 원래 있던
-	//테두리로 오해할 수 있어, 등장 순간에만 보여주고 흔적을 남기지 않는다.
-	if (m_border_flash_on)
-	{
-		CRect rb = rc;
-		rb.DeflateRect(1, 1);
-		draw_rect(d2dc, rb, Gdiplus::Color(255, 0, 150, 255), Gdiplus::Color::Transparent, 2.0f);
 	}
 
 	//우상단 닫기 버튼 — 호버 시점에만 D2D 로 직접 그림. round 코너 바깥은 그리지 않아
