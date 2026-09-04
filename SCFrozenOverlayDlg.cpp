@@ -2,7 +2,10 @@
 
 #include "pch.h"
 #include "SCFrozenOverlayDlg.h"
+#include "Common/Functions.h"
 #include "Common/cursor_helpers.h"
+
+#include <math.h>
 
 IMPLEMENT_DYNAMIC(CSCFrozenOverlayDlg, CDialog)
 
@@ -14,6 +17,7 @@ BEGIN_MESSAGE_MAP(CSCFrozenOverlayDlg, CDialog)
 	ON_WM_LBUTTONUP()
 	ON_WM_RBUTTONDOWN()
 	ON_WM_KEYDOWN()
+	ON_WM_SYSKEYDOWN()
 	ON_WM_SETCURSOR()
 END_MESSAGE_MAP()
 
@@ -63,7 +67,12 @@ bool CSCFrozenOverlayDlg::create(CWnd* parent)
 	}
 
 	ShowWindow(SW_SHOW);
-	SetForegroundWindow();
+
+	//20260904 by claude. 전역 단축키로 띄우면 이 프로세스는 포그라운드가 아니고(트레이 상주라 보이는 창도 없다)
+	//::SetForegroundWindow 는 그 상태에서 조용히 실패한다. 그래도 SetCapture 는 포커스와 무관하게 동작해
+	//마우스 캡처는 되지만 키 입력은 직전 앱이 계속 받는다 — ESC 로 취소가 안 되던 원인.
+	//다른 스레드의 입력 큐를 붙였다 떼는 처리가 필요하고 Common 의 이 함수가 그 일을 한다.
+	SetForegroundWindowForce(m_hWnd);
 	SetCapture();
 	return true;
 }
@@ -222,6 +231,15 @@ void CSCFrozenOverlayDlg::OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
 	CDialog::OnKeyDown(nChar, nRepCnt, nFlags);
 }
 
+//20260904 by claude. Alt+Shift+S 같은 단축키로 띄운 직후 Alt 를 놓지 않은 채 ESC 를 누르면
+//WM_KEYDOWN 이 아니라 WM_SYSKEYDOWN 이 온다. ON_WM_KEYDOWN 만으로는 그 ESC 를 놓친다.
+void CSCFrozenOverlayDlg::OnSysKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
+{
+	if (on_key_down(nChar))
+		return;
+	CDialog::OnSysKeyDown(nChar, nRepCnt, nFlags);
+}
+
 BOOL CSCFrozenOverlayDlg::OnSetCursor(CWnd* pWnd, UINT nHitTest, UINT message)
 {
 	POINT pt;
@@ -238,10 +256,45 @@ BOOL CSCFrozenOverlayDlg::OnSetCursor(CWnd* pWnd, UINT nHitTest, UINT message)
 
 BOOL CSCFrozenOverlayDlg::PreTranslateMessage(MSG* pMsg)
 {
-	if (pMsg->message == WM_KEYDOWN)
+	if (pMsg->message == WM_KEYDOWN || pMsg->message == WM_SYSKEYDOWN)
 	{
 		if (on_key_down(static_cast<UINT>(pMsg->wParam)))
 			return TRUE;
 	}
 	return CDialog::PreTranslateMessage(pMsg);
+}
+
+double CSCFrozenOverlayDlg::snap_step_degrees(UINT nFlags)
+{
+	const bool shift = (nFlags & MK_SHIFT) != 0;
+	const bool ctrl = (nFlags & MK_CONTROL) != 0;
+
+	if (shift && ctrl)
+		return 45.0;
+	if (ctrl)
+		return 15.0;
+	if (shift)
+		return 5.0;
+	return 0.0;
+}
+
+D2D1_POINT_2F CSCFrozenOverlayDlg::snap_direction(D2D1_POINT_2F anchor, D2D1_POINT_2F target, double step_degrees)
+{
+	if (step_degrees <= 0.0)
+		return target;
+
+	const double dx = double(target.x) - anchor.x;
+	const double dy = double(target.y) - anchor.y;
+	const double len = sqrt(dx * dx + dy * dy);
+	if (len < 1e-3)
+		return target;
+
+	const double pi = 3.14159265358979323846;
+	const double step = step_degrees * pi / 180.0;
+	//floor 대신 이 형태를 쓰면 음수 각도에서도 같은 방향으로 반올림된다 (atan2 는 -pi ~ pi).
+	const double snapped = step * floor(atan2(dy, dx) / step + 0.5);
+
+	return D2D1::Point2F(
+		float(anchor.x + cos(snapped) * len),
+		float(anchor.y + sin(snapped) * len));
 }

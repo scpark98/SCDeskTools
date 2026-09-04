@@ -80,6 +80,19 @@ protected:
 	//pt 는 overlay client 좌표.
 	virtual HCURSOR	query_cursor(CPoint pt) { return NULL; }
 
+	//===== 각도 스냅 — 줄자 / 각도기가 같은 조합키를 쓰도록 여기에 둔다 =====
+	//nFlags 는 마우스 메시지의 MK_* 비트. 반환 0 = 스냅 없음.
+	//  Shift = 5°, Ctrl = 15°, Shift+Ctrl = 45° (수평 / 수직 / 대각).
+	static double			snap_step_degrees(UINT nFlags);
+
+	//anchor→target 방향만 step_degrees 배수로 맞추고 길이는 그대로 둔다. step_degrees 가 0 이면 target 그대로.
+	//결과가 실수인 이유: 정수 픽셀로 반올림해 보관하면 그 점의 실제 각도가 스냅값에서
+	//최대 atan(0.7/길이) 만큼 어긋나, 마우스를 움직일 때마다 각도 표시와 라인이 미세하게 떨린다.
+	static D2D1_POINT_2F	snap_direction(D2D1_POINT_2F anchor, D2D1_POINT_2F target, double step_degrees);
+
+	//조합키 안내 문구 — 두 도구가 같은 문장을 쓰도록.
+	static const wchar_t*	snap_hint_text() { return L"Shift=5° / Ctrl=15° / Shift+Ctrl=45° 스냅"; }
+
 private:
 	bool			capture_virtual_screen_to_d2();
 
@@ -90,6 +103,7 @@ private:
 	afx_msg void	OnLButtonUp(UINT nFlags, CPoint point);
 	afx_msg void	OnRButtonDown(UINT nFlags, CPoint point);
 	afx_msg void	OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags);
+	afx_msg void	OnSysKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags);
 	afx_msg BOOL	OnSetCursor(CWnd* pWnd, UINT nHitTest, UINT message);
 	virtual BOOL	PreTranslateMessage(MSG* pMsg);
 	//OnOK / OnCancel: 다이얼로그 매니저가 ESC/Enter 를 IDCANCEL/IDOK 로 라우팅해도 finish() 로 통일.

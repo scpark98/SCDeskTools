@@ -4,7 +4,7 @@
 // 사용 흐름 (Phase state machine):
 //   1) phase_place_end — LButtonDown 으로 start 설정 → drag → LButtonUp 으로 end 확정
 //   2) phase_edit      — start / end / 라인 자체 (라인 위 = 평행이동) 모두 드래그 가능
-// Shift = 0/45/90° 로 각도 제약 (방향 잠금).
+// 각도 스냅: Shift=5° / Ctrl=15° / Shift+Ctrl=45° (베이스의 snap_step_degrees).
 // ESC / 우클릭 = 종료.
 
 #pragma once
@@ -43,15 +43,15 @@ private:
 	Phase		m_phase = Phase::phase_place_end;
 	bool		m_placed = false;	//phase_place_end → phase_edit 로 한 번이라도 진입했는지
 
-	CPoint		m_start = {};
-	CPoint		m_end	= {};
+	//정수 픽셀로 보관하면 스냅한 각도가 반올림 때문에 다시 어긋나 라인과 각도 표시가 미세하게 떨린다.
+	D2D1_POINT_2F	m_start = {};
+	D2D1_POINT_2F	m_end	= {};
 
 	HitTarget	m_drag_target = ht_none;
-	CPoint		m_drag_grab_offset = {};	//평행이동 시 마우스와 잡은 점의 차이
+	D2D1_POINT_2F	m_drag_grab_offset = {};	//평행이동 시 마우스와 잡은 점의 차이
 
 	HitTarget	hit_test(CPoint pt) const;
 	bool		on_line(CPoint pt) const;
-	CPoint		apply_constrain(CPoint anchor, CPoint target) const;	//Shift 로 0/45/90° 스냅
 
 	DECLARE_MESSAGE_MAP()
 };

@@ -19,20 +19,25 @@ namespace
 	const int arc_radius_default	= 60;
 	const double pi	= 3.14159265358979323846;
 
-	double dist_sq(POINT a, POINT b)
+	double dist_sq(D2D1_POINT_2F a, D2D1_POINT_2F b)
 	{
-		double dx = double(a.x - b.x);
-		double dy = double(a.y - b.y);
+		double dx = double(a.x) - b.x;
+		double dy = double(a.y) - b.y;
 		return dx * dx + dy * dy;
+	}
+
+	D2D1_POINT_2F to_point(CPoint pt)
+	{
+		return D2D1::Point2F(float(pt.x), float(pt.y));
 	}
 }
 
 double CSCProtractorDlg::calc_angle_degrees() const
 {
-	double ax = double(m_arm_a.x - m_vertex.x);
-	double ay = double(m_arm_a.y - m_vertex.y);
-	double bx = double(m_arm_b.x - m_vertex.x);
-	double by = double(m_arm_b.y - m_vertex.y);
+	double ax = double(m_arm_a.x) - m_vertex.x;
+	double ay = double(m_arm_a.y) - m_vertex.y;
+	double bx = double(m_arm_b.x) - m_vertex.x;
+	double by = double(m_arm_b.y) - m_vertex.y;
 
 	double la = sqrt(ax * ax + ay * ay);
 	double lb = sqrt(bx * bx + by * by);
@@ -48,36 +53,39 @@ double CSCProtractorDlg::calc_angle_degrees() const
 CSCProtractorDlg::HitTarget CSCProtractorDlg::hit_test(CPoint pt) const
 {
 	const double r2 = double(handle_hit_radius) * handle_hit_radius;
-	if (dist_sq(pt, m_vertex) <= r2)
+	if (dist_sq(to_point(pt), m_vertex) <= r2)
 		return ht_vertex;
-	if (dist_sq(pt, m_arm_a) <= r2)
+	if (dist_sq(to_point(pt), m_arm_a) <= r2)
 		return ht_arm_a;
-	if (dist_sq(pt, m_arm_b) <= r2)
+	if (dist_sq(to_point(pt), m_arm_b) <= r2)
 		return ht_arm_b;
 	return ht_none;
 }
 
-void CSCProtractorDlg::move_vertex_to(CPoint new_vertex)
+void CSCProtractorDlg::move_vertex_to(D2D1_POINT_2F new_vertex)
 {
-	CPoint delta = new_vertex - m_vertex;
+	const float dx = new_vertex.x - m_vertex.x;
+	const float dy = new_vertex.y - m_vertex.y;
 	m_vertex = new_vertex;
-	m_arm_a += delta;
-	m_arm_b += delta;
+	m_arm_a = D2D1::Point2F(m_arm_a.x + dx, m_arm_a.y + dy);
+	m_arm_b = D2D1::Point2F(m_arm_b.x + dx, m_arm_b.y + dy);
 }
 
-void CSCProtractorDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
+void CSCProtractorDlg::on_mouse_down(UINT nFlags, CPoint point)
 {
 	switch (m_phase)
 	{
 	case Phase::phase_place_arm_a:
-		m_vertex = point;
-		m_arm_a	= point;
-		m_arm_b	= point;
+		m_vertex = to_point(point);
+		m_arm_a	= m_vertex;
+		m_arm_b	= m_vertex;
 		Invalidate(FALSE);
 		return;
 
 	case Phase::phase_place_arm_b:
-		m_arm_b = point;
+		//드래그 없이 클릭만으로 확정되는 단계라, on_mouse_move 에서 그려주던 것과 같은 스냅을 여기서도 적용해야
+		//화면에 보이던 위치 그대로 확정된다.
+		m_arm_b = snap_direction(m_vertex, to_point(point), snap_step_degrees(nFlags));
 		m_phase = Phase::phase_edit;
 		Invalidate(FALSE);
 		return;
@@ -89,7 +97,7 @@ void CSCProtractorDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 		{
 			m_drag_target = t;
 			if (t == ht_vertex)
-				m_drag_grab_offset = m_vertex - point;
+				m_drag_grab_offset = D2D1::Point2F(m_vertex.x - point.x, m_vertex.y - point.y);
 		}
 		return;
 	}
@@ -98,49 +106,53 @@ void CSCProtractorDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 
 void CSCProtractorDlg::on_mouse_move(UINT nFlags, CPoint point)
 {
+	//각 arm 은 vertex 를 기준으로 스냅한다 — 30°/45° 같은 각을 정확히 만들 수 있다.
+	//vertex 평행이동은 각도가 변하지 않으므로 스냅 대상이 아니다.
+	const double step = snap_step_degrees(nFlags);
+
 	switch (m_phase)
 	{
 	case Phase::phase_place_arm_a:
 		if (nFlags & MK_LBUTTON)
 		{
-			m_arm_a = point;
+			m_arm_a = snap_direction(m_vertex, to_point(point), step);
 			Invalidate(FALSE);
 		}
 		return;
 
 	case Phase::phase_place_arm_b:
-		m_arm_b = point;
+		m_arm_b = snap_direction(m_vertex, to_point(point), step);
 		Invalidate(FALSE);
 		return;
 
 	case Phase::phase_edit:
 		if (m_drag_target == ht_vertex)
 		{
-			move_vertex_to(point + m_drag_grab_offset);
+			move_vertex_to(D2D1::Point2F(point.x + m_drag_grab_offset.x, point.y + m_drag_grab_offset.y));
 			Invalidate(FALSE);
 		}
 		else if (m_drag_target == ht_arm_a)
 		{
-			m_arm_a = point;
+			m_arm_a = snap_direction(m_vertex, to_point(point), step);
 			Invalidate(FALSE);
 		}
 		else if (m_drag_target == ht_arm_b)
 		{
-			m_arm_b = point;
+			m_arm_b = snap_direction(m_vertex, to_point(point), step);
 			Invalidate(FALSE);
 		}
 		return;
 	}
 }
 
-void CSCProtractorDlg::on_mouse_up(UINT /*nFlags*/, CPoint point)
+void CSCProtractorDlg::on_mouse_up(UINT nFlags, CPoint point)
 {
 	switch (m_phase)
 	{
 	case Phase::phase_place_arm_a:
-		if (dist_sq(point, m_vertex) < 4.0)
+		if (dist_sq(to_point(point), m_vertex) < 4.0)
 			return;
-		m_arm_a = point;
+		m_arm_a = snap_direction(m_vertex, to_point(point), snap_step_degrees(nFlags));
 		m_phase = Phase::phase_place_arm_b;
 		m_arm_b = m_vertex;
 		Invalidate(FALSE);
@@ -180,7 +192,7 @@ HCURSOR CSCProtractorDlg::query_cursor(CPoint pt)
 
 void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 {
-	if (m_phase == Phase::phase_place_arm_a && m_vertex == m_arm_a)
+	if (m_phase == Phase::phase_place_arm_a && dist_sq(m_vertex, m_arm_a) < 1e-6)
 	{
 		//아직 첫 클릭 전 — 안내 문구만.
 		ComPtr<IDWriteFactory> dwrite;
@@ -201,7 +213,7 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.65f), br_back.GetAddressOf());
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_text.GetAddressOf());
 
-			const float w = 540.0f;
+			const float w = 700.0f;
 			const float h = 32.0f;
 			const float full_w = float(m_virtual_screen.Width());
 			const float lx = (full_w - w) * 0.5f;
@@ -209,8 +221,9 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + w, ly + h), 6.0f, 6.0f };
 			d2dc->FillRoundedRectangle(rr, br_back.Get());
 
-			const wchar_t* msg = L"각도기: 클릭+드래그로 첫 라인 → 마우스 이동 후 클릭으로 둘째 라인 → 핸들 드래그로 조정 / ESC=종료";
-			d2dc->DrawText(msg, UINT32(wcslen(msg)), tf.Get(),
+			CStringW msg;
+			msg.Format(L"각도기: 클릭+드래그로 첫 라인 → 마우스 이동 후 클릭으로 둘째 라인 → 핸들 드래그로 조정 / %s / ESC=종료", snap_hint_text());
+			d2dc->DrawText(msg, UINT32(msg.GetLength()), tf.Get(),
 				D2D1::RectF(lx, ly, lx + w, ly + h),
 				br_text.Get(),
 				D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
@@ -227,9 +240,9 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFFD60A, 1.00f),	br_arc.GetAddressOf());
 	d2dc->CreateSolidColorBrush(D2D1::ColorF(0xFFD60A, 0.25f),	br_arc_fill.GetAddressOf());
 
-	const D2D1_POINT_2F p_v = D2D1::Point2F(float(m_vertex.x), float(m_vertex.y));
-	const D2D1_POINT_2F p_a = D2D1::Point2F(float(m_arm_a.x),	float(m_arm_a.y));
-	const D2D1_POINT_2F p_b = D2D1::Point2F(float(m_arm_b.x),	float(m_arm_b.y));
+	const D2D1_POINT_2F p_v = m_vertex;
+	const D2D1_POINT_2F p_a = m_arm_a;
+	const D2D1_POINT_2F p_b = m_arm_b;
 
 	d2dc->DrawLine(p_v, p_a, br_arm.Get(), 2.0f);
 
@@ -238,10 +251,10 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 
 	if (m_phase != Phase::phase_place_arm_a)
 	{
-		double ax = double(m_arm_a.x - m_vertex.x);
-		double ay = double(m_arm_a.y - m_vertex.y);
-		double bx = double(m_arm_b.x - m_vertex.x);
-		double by = double(m_arm_b.y - m_vertex.y);
+		double ax = double(m_arm_a.x) - m_vertex.x;
+		double ay = double(m_arm_a.y) - m_vertex.y;
+		double bx = double(m_arm_b.x) - m_vertex.x;
+		double by = double(m_arm_b.y) - m_vertex.y;
 		double la = sqrt(ax * ax + ay * ay);
 		double lb = sqrt(bx * bx + by * by);
 

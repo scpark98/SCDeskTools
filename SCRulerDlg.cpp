@@ -20,16 +20,21 @@ namespace
 	const int line_hit_dist	= 6;
 	const double pi	= 3.14159265358979323846;
 
-	double dist_sq(POINT a, POINT b)
+	double dist_sq(D2D1_POINT_2F a, D2D1_POINT_2F b)
 	{
-		double dx = double(a.x - b.x);
-		double dy = double(a.y - b.y);
+		double dx = double(a.x) - b.x;
+		double dy = double(a.y) - b.y;
 		return dx * dx + dy * dy;
+	}
+
+	D2D1_POINT_2F to_point(CPoint pt)
+	{
+		return D2D1::Point2F(float(pt.x), float(pt.y));
 	}
 
 	//라인 (a→b) 에 대한 점 p 의 수직 거리. p 가 [a,b] 사이에 투영될 때만 의미 있음.
 	//projection_t out 으로 0~1 범위 투영 위치도 같이 반환.
-	double perpendicular_dist(POINT a, POINT b, POINT p, double& projection_t)
+	double perpendicular_dist(D2D1_POINT_2F a, D2D1_POINT_2F b, D2D1_POINT_2F p, double& projection_t)
 	{
 		double dx = double(b.x - a.x);
 		double dy = double(b.y - a.y);
@@ -48,9 +53,9 @@ namespace
 CSCRulerDlg::HitTarget CSCRulerDlg::hit_test(CPoint pt) const
 {
 	const double r2 = double(handle_hit_radius) * handle_hit_radius;
-	if (dist_sq(pt, m_start) <= r2)
+	if (dist_sq(to_point(pt), m_start) <= r2)
 		return ht_start;
-	if (dist_sq(pt, m_end) <= r2)
+	if (dist_sq(to_point(pt), m_end) <= r2)
 		return ht_end;
 	if (on_line(pt))
 		return ht_line;
@@ -60,26 +65,8 @@ CSCRulerDlg::HitTarget CSCRulerDlg::hit_test(CPoint pt) const
 bool CSCRulerDlg::on_line(CPoint pt) const
 {
 	double t = 0.0;
-	double d = perpendicular_dist(m_start, m_end, pt, t);
+	double d = perpendicular_dist(m_start, m_end, to_point(pt), t);
 	return (t > 0.05 && t < 0.95 && d <= double(line_hit_dist));
-}
-
-CPoint CSCRulerDlg::apply_constrain(CPoint anchor, CPoint target) const
-{
-	double dx = double(target.x - anchor.x);
-	double dy = double(target.y - anchor.y);
-	double len = sqrt(dx * dx + dy * dy);
-	if (len < 1e-3)
-		return target;
-
-	double angle = atan2(dy, dx);
-	//5° 단위 스냅. 디자인 도구의 45° 보다 fine — 기울기 측정 시 의도한 각도를 잡기 쉽다.
-	const double step = pi / 36.0;	//180° / 36 = 5°
-	double snapped = floor((angle + step * 0.5) / step) * step;
-
-	return CPoint(
-		anchor.x + int(cos(snapped) * len + 0.5),
-		anchor.y + int(sin(snapped) * len + 0.5));
 }
 
 void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
@@ -87,8 +74,8 @@ void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 	if (m_phase == Phase::phase_place_end && !m_placed)
 	{
 		//최초: start 잡고 drag 시작.
-		m_start = point;
-		m_end	= point;
+		m_start = to_point(point);
+		m_end	= m_start;
 		Invalidate(FALSE);
 		return;
 	}
@@ -100,8 +87,8 @@ void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 		//라인이 이미 그려진 후, 라인 외부 클릭 → 새로 그리기 시작.
 		m_phase = Phase::phase_place_end;
 		m_placed = false;
-		m_start = point;
-		m_end	= point;
+		m_start = to_point(point);
+		m_end	= m_start;
 		Invalidate(FALSE);
 		return;
 	}
@@ -110,17 +97,17 @@ void CSCRulerDlg::on_mouse_down(UINT /*nFlags*/, CPoint point)
 	if (t == ht_line)
 	{
 		//라인 평행이동: 라인 중심점을 잡은 것처럼 처리. start 와 마우스의 차이를 기억.
-		m_drag_grab_offset = m_start - point;
+		m_drag_grab_offset = D2D1::Point2F(m_start.x - point.x, m_start.y - point.y);
 	}
 }
 
 void CSCRulerDlg::on_mouse_move(UINT nFlags, CPoint point)
 {
-	const bool shift = (nFlags & MK_SHIFT) != 0;
+	const double step = snap_step_degrees(nFlags);
 
 	if (m_phase == Phase::phase_place_end && (nFlags & MK_LBUTTON))
 	{
-		m_end = shift ? apply_constrain(m_start, point) : point;
+		m_end = snap_direction(m_start, to_point(point), step);
 		Invalidate(FALSE);
 		return;
 	}
@@ -129,21 +116,21 @@ void CSCRulerDlg::on_mouse_move(UINT nFlags, CPoint point)
 	{
 		if (m_drag_target == ht_start)
 		{
-			m_start = shift ? apply_constrain(m_end, point) : point;
+			m_start = snap_direction(m_end, to_point(point), step);
 			Invalidate(FALSE);
 		}
 		else if (m_drag_target == ht_end)
 		{
-			m_end = shift ? apply_constrain(m_start, point) : point;
+			m_end = snap_direction(m_start, to_point(point), step);
 			Invalidate(FALSE);
 		}
 		else if (m_drag_target == ht_line)
 		{
 			//라인 전체 평행이동. delta = 새 start - 현재 start.
-			CPoint new_start = point + m_drag_grab_offset;
-			CPoint delta = new_start - m_start;
-			m_start += delta;
-			m_end	+= delta;
+			const float dx = point.x + m_drag_grab_offset.x - m_start.x;
+			const float dy = point.y + m_drag_grab_offset.y - m_start.y;
+			m_start = D2D1::Point2F(m_start.x + dx, m_start.y + dy);
+			m_end	= D2D1::Point2F(m_end.x	 + dx, m_end.y	 + dy);
 			Invalidate(FALSE);
 		}
 	}
@@ -153,7 +140,7 @@ void CSCRulerDlg::on_mouse_up(UINT /*nFlags*/, CPoint point)
 {
 	if (m_phase == Phase::phase_place_end)
 	{
-		if (dist_sq(point, m_start) < 4.0)
+		if (dist_sq(to_point(point), m_start) < 4.0)
 			return;	//클릭만 한 셈 — 그대로 두고 다시 drag 대기
 		m_phase = Phase::phase_edit;
 		m_placed = true;
@@ -179,7 +166,7 @@ HCURSOR CSCRulerDlg::query_cursor(CPoint pt)
 
 void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 {
-	if (m_phase == Phase::phase_place_end && !m_placed && m_start == m_end)
+	if (m_phase == Phase::phase_place_end && !m_placed && dist_sq(m_start, m_end) < 1e-6)
 	{
 		//아직 첫 클릭 전 — 안내 문구.
 		ComPtr<IDWriteFactory> dwrite;
@@ -200,7 +187,7 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.65f), br_back.GetAddressOf());
 			d2dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.00f), br_text.GetAddressOf());
 
-			const float w = 540.0f;
+			const float w = 620.0f;
 			const float h = 32.0f;
 			const float full_w = float(m_virtual_screen.Width());
 			const float lx = (full_w - w) * 0.5f;
@@ -208,8 +195,9 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			D2D1_ROUNDED_RECT rr = { D2D1::RectF(lx, ly, lx + w, ly + h), 6.0f, 6.0f };
 			d2dc->FillRoundedRectangle(rr, br_back.Get());
 
-			const wchar_t* msg = L"줄자: 클릭+드래그로 라인 그리기 → 끝점/라인 드래그로 조정 / Shift=5° 단위 스냅 / ESC=종료";
-			d2dc->DrawText(msg, UINT32(wcslen(msg)), tf.Get(),
+			CStringW msg;
+			msg.Format(L"줄자: 클릭+드래그로 라인 그리기 → 끝점/라인 드래그로 조정 / %s / ESC=종료", snap_hint_text());
+			d2dc->DrawText(msg, UINT32(msg.GetLength()), tf.Get(),
 				D2D1::RectF(lx, ly, lx + w, ly + h),
 				br_text.Get(),
 				D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
@@ -217,11 +205,11 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 		return;
 	}
 
-	const D2D1_POINT_2F p_s = D2D1::Point2F(float(m_start.x), float(m_start.y));
-	const D2D1_POINT_2F p_e = D2D1::Point2F(float(m_end.x),	float(m_end.y));
+	const D2D1_POINT_2F p_s = m_start;
+	const D2D1_POINT_2F p_e = m_end;
 
-	double dx = double(m_end.x - m_start.x);
-	double dy = double(m_end.y - m_start.y);
+	double dx = double(m_end.x) - m_start.x;
+	double dy = double(m_end.y) - m_start.y;
 	double length = sqrt(dx * dx + dy * dy);
 
 	ComPtr<ID2D1SolidColorBrush> br_line;
