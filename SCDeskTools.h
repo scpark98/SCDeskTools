@@ -9,6 +9,7 @@
 #endif
 
 #include "resource.h"		// 주 기호입니다.
+#include "Common/system/CSCSelfPatch/SCSelfPatch.h"
 
 
 // CSCDeskToolsApp:
@@ -22,6 +23,10 @@ public:
 	~CSCDeskToolsApp();
 
 	HANDLE		m_hMutex;
+
+	//20260907 by claude. 자체 패치 — 시작 시 버전 검사 + 부팅 자동 실행 등록. 교체는 실행한 그 자리에서.
+	//원리와 서버 구성은 Common/system/CSCSelfPatch/SCSelfPatch.h 주석 참조.
+	CSCSelfPatch	m_self_patch;
 
 // 재정의입니다.
 public:

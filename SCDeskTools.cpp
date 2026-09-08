@@ -11,7 +11,6 @@
 #define new DEBUG_NEW
 #endif
 
-
 // CSCDeskToolsApp
 
 BEGIN_MESSAGE_MAP(CSCDeskToolsApp, CWinApp)
@@ -52,6 +51,16 @@ BOOL CSCDeskToolsApp::InitInstance()
 	m_hMutex = ::CreateMutex(nullptr, FALSE, _T("MUTEX_OF_CSCDeskTools"));
 
 	if (::GetLastError() == ERROR_ALREADY_EXISTS)
+		return FALSE;
+
+	//20260907 by claude. 새 버전 검사 + 부팅 자동 실행 등록. 교체는 실행한 그 자리에서 한다.
+	//UI 초기화보다 먼저 한다 — 패치하는 경우에는 창을 띄우지 않고 죽고, 배치파일이 새 exe 를 띄운다.
+	//다이얼로그 생성 전이어야 하는 이유는 이 시점에는 사용자가 만든 것(캡처 노트 등)이 아직 없어서다 —
+	//실행 도중에 교체하면 띄워 둔 노트가 통째로 사라진다.
+	m_self_patch.server_path = _T("/download/tools/KoinoTools/SCDeskTools");
+	m_self_patch.register_startup = true;
+
+	if (m_self_patch.startup())
 		return FALSE;
 
 	// Windows XP에서는 InitCommonControlsEx()를 필요로 합니다.
@@ -123,6 +132,8 @@ BOOL CSCDeskToolsApp::InitInstance()
 int CSCDeskToolsApp::ExitInstance()
 {
 	// TODO: 여기에 특수화된 코드를 추가 및/또는 기본 클래스를 호출합니다.
+
+	m_self_patch.shutdown();
 
 	return CWinApp::ExitInstance();
 }

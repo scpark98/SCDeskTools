@@ -51,6 +51,12 @@
     <ClInclude Include="..\Common\Functions.h">
       <Filter>Common</Filter>
     </ClInclude>
+    <ClInclude Include="..\Common\system\CSCSelfPatch\SCSelfPatch.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Common\zip\zip\unzip.h">
+      <Filter>Common</Filter>
+    </ClInclude>
     <ClInclude Include="..\Common\system\SysTrayIcon\SysTrayIcon.h">
       <Filter>Common</Filter>
     </ClInclude>
@@ -153,6 +159,12 @@
       <Filter>Common</Filter>
     </ClCompile>
     <ClCompile Include="..\Common\Functions.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Common\system\CSCSelfPatch\SCSelfPatch.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Common\zip\zip\unzip.cpp">
       <Filter>Common</Filter>
     </ClCompile>
     <ClCompile Include="..\Common\system\SysTrayIcon\SysTrayIcon.cpp">

@@ -241,3 +241,16 @@ DPI 변경 시 이 창이 할 일은 **크기 복원 하나뿐**이다 — OS �
 - 다른 머신에서 시작 시 `git pull` → 이 파일이 자동 컨텍스트로 로드됨.
 - 홈 폴더 auto-memory 는 머신 간 이동 안 됨 — **여기로 이관**.
 - 일반적인 코딩 규칙(네이밍·인코딩·MFC 패턴 등) 은 모두 `Common/claude.md` 가 권위. 이 파일은 SCDeskTools 한정 사실만.
+
+---
+
+## 자체 패치 (Self Patch)
+
+2026-09-07 적용. 공통 모듈 `Common/system/CSCSelfPatch/SCSelfPatch.{h,cpp}` 를 쓴다 —
+`InitInstance` 앞부분에서 `m_self_patch.startup()`, `ExitInstance` 에서 `m_self_patch.shutdown()`.
+
+- 서버 폴더: `/download/tools/KoinoTools/SCDeskTools` (`ss.linkmemine.com:443`)
+- 실행한 그 자리에서 패치한다. 정해진 설치 폴더가 없으므로 exe 를 어디에 두든 바로가기·시작프로그램 등록이 그대로 유효하다.
+- 부팅 시 자동 실행 등록 대상이다 (`register_startup = true`).
+
+원리·배포 절차는 <https://koinodoc.atlassian.net/wiki/spaces/2HfRugOJ0HVK/pages/48562184> 참조.
