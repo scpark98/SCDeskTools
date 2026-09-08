@@ -230,6 +230,7 @@
     <ClInclude Include="..\Common\CStatic\SCStatic\SCStatic.h" />
     <ClInclude Include="..\Common\CDialog\SCD2ImageDlg\SCD2ImageDlg.h" />
     <ClInclude Include="..\Common\CStatic\XPGroupBox\XPGroupBox.h" />
+    <ClInclude Include="..\Common\CToolTipCtrl\CSCToolTipCtrl\SCToolTipCtrl.h" />
     <ClInclude Include="..\Common\data_structure\SCParagraph\SCParagraph.h" />
     <ClInclude Include="..\Common\win_compat\dpi.h" />
     <ClInclude Include="..\Common\win_compat\dwm.h" />
@@ -316,6 +317,12 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="..\Common\CStatic\XPGroupBox\XPGroupBox.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="..\Common\CToolTipCtrl\CSCToolTipCtrl\SCToolTipCtrl.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>

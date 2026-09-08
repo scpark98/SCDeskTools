@@ -138,6 +138,9 @@
     <ClInclude Include="..\Common\win_compat\dwm.h">
       <Filter>Common</Filter>
     </ClInclude>
+    <ClInclude Include="..\Common\CToolTipCtrl\CSCToolTipCtrl\SCToolTipCtrl.h">
+      <Filter>Common</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="SCDeskTools.cpp">
@@ -239,6 +242,9 @@
     <ClCompile Include="..\Common\data_structure\SCParagraph\SCParagraph.cpp">
       <Filter>Common</Filter>
     </ClCompile>
+    <ClCompile Include="..\Common\CToolTipCtrl\CSCToolTipCtrl\SCToolTipCtrl.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="SCDeskTools.rc">
@@ -249,6 +255,7 @@
     <None Include="res\SCDeskTools.rc2">
       <Filter>리소스 파일</Filter>
     </None>
+    <None Include="SCDeskTools.dpi.manifest" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="res\SCDeskTools.ico">
