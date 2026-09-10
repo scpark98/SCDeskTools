@@ -1050,10 +1050,12 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 	{
 		WCHAR size_text[64];
 		swprintf_s(size_text, L"(%d x %d) (%.3f:1)", m_img_w, m_img_h, double(m_img_w) / double(m_img_h));
+		//20260910 by claude. 그림자 누적 13회는 과해서 5회로(마지막 두 인자 true,true 는 show_text/show_shadow 기본,
+		//shadow_passes=5 를 넘기기 위한 위치 인자). 5회는 blur 범위가 좁아 글자 주변에 또렷하게 뭉쳐 가독성 유지.
 		draw_text(d2dc, CRect(rc.left + margin, rc.top, rc.right, rc.bottom - margin), size_text,
 			_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
 			Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,
-			1.0f, DT_LEFT | DT_BOTTOM);
+			1.0f, DT_LEFT | DT_BOTTOM, true, true, 5);
 	}
 
 	if (m_show_info && m_hover_pixel.X >= 0.0f && m_hover_pixel.Y >= 0.0f)
@@ -1061,10 +1063,11 @@ void CSCCapturedNoteDlg::on_img_dlg_post_paint(ID2D1DeviceContext* d2dc)
 		WCHAR text[64];
 		swprintf_s(text, L"(%d, %d)", int(m_hover_pixel.X), int(m_hover_pixel.Y));
 
+		//20260910 by claude. 그림자 5회 누적(위 size_text 와 동일, shadow_passes=5).
 		draw_text(d2dc, CRect(rc.left, rc.top, rc.right - margin, rc.bottom - margin), text,
 			_T("Segoe UI"), 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
 			Gdiplus::Color::White, Gdiplus::Color::Black, Gdiplus::Color::Black, Gdiplus::Color::Transparent,
-			1.0f, DT_RIGHT | DT_BOTTOM);
+			1.0f, DT_RIGHT | DT_BOTTOM, true, true, 5);
 	}
 
 	//우상단 닫기 버튼 — 호버 시점에만 D2D 로 직접 그림. round 코너 바깥은 그리지 않아
