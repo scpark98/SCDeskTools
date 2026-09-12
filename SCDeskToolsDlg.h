@@ -9,6 +9,7 @@
 
 #include "Common/system/SysTrayIcon/SysTrayIcon.h"
 #include "Common/CDialog/CSCColorPicker/SCColorPicker.h"
+#include "Common/CDialog/SCShapeDlg/SCShapeDlg.h"
 
 // CSCDeskToolsDlg 대화 상자
 class CSCDeskToolsDlg : public CDialogEx
@@ -16,6 +17,24 @@ class CSCDeskToolsDlg : public CDialogEx
 // 생성입니다.
 public:
 	CSCDeskToolsDlg(CWnd* pParent = nullptr);	// 표준 생성자입니다.
+
+	//20260912 by claude. 화면에 잠깐 띄웠다가 1초 뒤 fade-out 되는 메시지.
+	//center_on 을 주면 그 창 기준으로 가운데 정렬한다 (NULL 이면 메인 다이얼로그 기준 — 트레이 상주라
+	//대개 숨어 있으므로 캡처 노트처럼 실제로 보이는 창을 넘기는 쪽이 맞다).
+	//message 는 임의 문자열이어도 된다 — 내부에서 태그 문자를 escape 한다.
+	void			show_message(CString message, CWnd* center_on = NULL);
+
+	//20260912 by claude. 위와 같지만 문자열을 escape 하지 않는다 — SCParagraph 서식 태그
+	//(<cr=#RRGGBB>, <sz=n>, <br> 등)가 이미 들어 있는 문자열을 그대로 표시할 때 쓴다.
+	//본문 글자에 섞인 < > & 는 호출자가 미리 escape 해서 넘겨야 한다.
+	//cr_panel 은 글자를 얹을 배경. 알파 0 (기본) 이면 어두운 기본 패널을 쓴다.
+	void            show_message_tagged(CString tagged, CWnd* center_on = NULL,
+						Gdiplus::Color cr_panel = Gdiplus::Color::Transparent);
+
+	//20260912 by claude. top-down 32bpp BGRA 이미지를 인식해 결과를 클립보드(RTF + 평문)에 넣고
+	//화면에 잠깐 띄운다. 캡처 노트의 Ctrl+T 와 전역 단축키 Alt+Shift+T 가 함께 타는 단일 경로다.
+	//center_on 은 토스트를 가운데 맞출 기준 창 (NULL 이면 메인 다이얼로그).
+	void			run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, CWnd* center_on = NULL);
 
 // 대화 상자 데이터입니다.
 #ifdef AFX_DESIGN_TIME
@@ -32,6 +51,11 @@ protected:
 
 	CSysTrayIcon	m_sys_tray;
 	CSCColorPicker	m_color_picker;	//modeless 컬러 피커. OnInitDialog 에서 1회 create.
+
+	//20260912 by claude. 잠깐 떴다 사라지는 floating 메시지. 노트가 아니라 메인 다이얼로그가 들고 있다 —
+	//fade 는 detach 된 thread 라, 소유자가 먼저 사라지면 그 thread 가 해제된 객체를 건드린다.
+	//캡처 노트는 언제든 닫히는(self-delete) 창이므로 소유자가 될 수 없다.
+	CSCShapeDlg		m_message;
 
 	//메인 창에 노출할 즐겨찾기 툴 ID 목록. 향후 설정창에서 편집 → 레지스트리 저장 예정.
 	//지금은 OnInitDialog 에서 default_favorites 로 초기화.
@@ -81,6 +105,7 @@ protected:
 	void			unregister_monitor_hotkeys();
 	int				m_registered_monitor_count = 0;	//현재 등록된 모니터 단축키 개수
 	void			send_image_to_clipboard_and_note(const BYTE* bgra_top_down, int w, int h, POINT note_pos);
+	bool			read_clipboard_image_bgra(std::vector<BYTE>& bgra, int& width, int& height);
 	void			capture_screen_rect(const CRect& rc_screen);
 	void			show_tools_popup_menu(CPoint pt_screen);
 	void			toggle_main_window();
@@ -117,6 +142,7 @@ protected:
 	afx_msg void OnToolCaptureFullscreen();
 	afx_msg void OnToolCaptureMonitor(UINT nID);	//ID_TOOL_CAPTURE_MONITOR_FIRST..LAST 범위 처리
 	afx_msg void OnToolPasteClipboard();
+	afx_msg void OnToolOcrClipboard();
 	afx_msg void OnToolProtractor();
 	afx_msg void OnToolRuler();
 	afx_msg void OnAppShowHide();

@@ -96,6 +96,15 @@
     <ClInclude Include="..\Common\CDialog\SCD2ImageDlg\SCD2ImageDlg.h">
       <Filter>Common</Filter>
     </ClInclude>
+    <ClInclude Include="..\Common\ocr\SCWinOcr.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Common\log\SCLog\SCLog.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Common\CDialog\SCShapeDlg\SCShapeDlg.h">
+      <Filter>Common</Filter>
+    </ClInclude>
     <ClInclude Include="..\Common\ThumbCtrl\SCThumbCtrl.h">
       <Filter>Common</Filter>
     </ClInclude>
@@ -204,6 +213,15 @@
       <Filter>Common</Filter>
     </ClCompile>
     <ClCompile Include="..\Common\CDialog\SCD2ImageDlg\SCD2ImageDlg.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Common\ocr\SCWinOcr.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Common\log\SCLog\SCLog.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Common\CDialog\SCShapeDlg\SCShapeDlg.cpp">
       <Filter>Common</Filter>
     </ClCompile>
     <ClCompile Include="..\Common\ThumbCtrl\SCThumbCtrl.cpp">

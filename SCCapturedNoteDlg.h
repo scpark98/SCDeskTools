@@ -8,7 +8,7 @@
 // - 휠 = 줌 인/아웃 (m_img_dlg.zoom(±1)).
 // - 가운데 버튼 클릭 = 크기 / 비율 / 마우스 픽셀 좌표 표시 토글.
 // - +, - 키 = 줌 인/아웃.
-// - 우클릭 = 컨텍스트 메뉴 (클립보드 복사 / 100% / fit / 배경색 / 닫기).
+// - 우클릭 = 컨텍스트 메뉴 (클립보드 복사 / 텍스트 인식 / 100% / fit / 배경색 / 닫기).
 // - ESC = 닫기.
 // - heap 할당 + PostNcDestroy 에서 self-delete (멀티 인스턴스 안전).
 //
@@ -56,6 +56,7 @@ private:
 		cmd_back_custom = 9,
 		cmd_interp_nearest = 10,
 		cmd_interp_linear = 11,
+		cmd_ocr = 12,
 	};
 
 	CSCD2Context	m_d2;

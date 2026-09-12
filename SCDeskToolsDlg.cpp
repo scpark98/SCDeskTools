@@ -13,6 +13,11 @@
 
 #include "Common/Functions.h"
 #include "Common/win_compat/dpi.h"
+#include "Common/ocr/SCWinOcr.h"
+#include "Common/log/SCLog/SCLog.h"
+#include "Common/SCGdiplusBitmap.h"
+#include "Common/colors.h"
+#include <map>
 #include "Common/CDialog/CSCColorPicker/SCDropperDlg.h"
 #include "SCCaptureOverlayDlg.h"
 #include "SCCapturedNoteDlg.h"
@@ -36,6 +41,9 @@
 
 //본 파일 하단 정의를 앞쪽 사용처(레이아웃)에서 참조 가능하게 forward declaration.
 static UINT monitor_dpi_for_window(HWND hwnd);
+
+//20260912 by claude. 토스트 패널 기본색. OCR 결과처럼 원본 배경을 가져오는 경우가 아니면 이 색을 쓴다.
+static const Gdiplus::Color toast_back_default = Gdiplus::Color(232, 24, 24, 24);
 
 //===== 툴 레지스트리 =====
 //툴을 추가하려면 (1) Resource.h 에 ID_TOOL_* 정의, (2) 핸들러 함수 + ON_COMMAND 추가,
@@ -68,6 +76,7 @@ namespace
 		{ ID_TOOL_CAPTURE_REGION,		_T("영역 캡처"),					_T("영역 캡처"),					cat_capture },
 		{ ID_TOOL_CAPTURE_FREEHAND,		_T("자유 영역 캡처"),			_T("자유 영역 캡처"),			cat_capture },
 		{ ID_TOOL_PASTE_CLIPBOARD,		_T("클립보드 이미지 띠우기"),		_T("클립보드 이미지 띠우기"),		cat_capture },
+		{ ID_TOOL_OCR_CLIPBOARD,		_T("클립보드 이미지 텍스트 인식"),	_T("클립보드 이미지 텍스트 인식"),	cat_capture },
 		//Color
 		{ ID_TOOL_COLOR_PICKER,			_T("컬러 피커"),					_T("컬러 피커"),					cat_color },
 		{ ID_TOOL_DROPPER,				_T("화면 돋보기"),				_T("화면 돋보기"),				cat_color },
@@ -140,6 +149,7 @@ namespace
 		{ 6,	ID_TOOL_DROPPER,			MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'M',	_T("화면 돋보기 (Alt+Shift+M)") },
 		{ 7,	ID_TOOL_PROTRACTOR,			MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'P',	_T("각도기 (Alt+Shift+P)") },
 		{ 8,	ID_TOOL_RULER,				MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'L',	_T("줄자 (Alt+Shift+L)") },
+		{ 10,	ID_TOOL_OCR_CLIPBOARD,		MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,	'T',	_T("클립보드 이미지 텍스트 인식 (Alt+Shift+T)") },
 	};
 
 	UINT find_tool_id_by_hotkey_id(int hotkey_id)
@@ -265,6 +275,7 @@ BEGIN_MESSAGE_MAP(CSCDeskToolsDlg, CDialogEx)
 	ON_COMMAND(ID_TOOL_CAPTURE_FULLSCREEN, &CSCDeskToolsDlg::OnToolCaptureFullscreen)
 	ON_COMMAND_RANGE(ID_TOOL_CAPTURE_MONITOR_FIRST, ID_TOOL_CAPTURE_MONITOR_LAST, &CSCDeskToolsDlg::OnToolCaptureMonitor)
 	ON_COMMAND(ID_TOOL_PASTE_CLIPBOARD, &CSCDeskToolsDlg::OnToolPasteClipboard)
+	ON_COMMAND(ID_TOOL_OCR_CLIPBOARD, &CSCDeskToolsDlg::OnToolOcrClipboard)
 	ON_COMMAND(ID_TOOL_PROTRACTOR, &CSCDeskToolsDlg::OnToolProtractor)
 	ON_COMMAND(ID_TOOL_RULER, &CSCDeskToolsDlg::OnToolRuler)
 	ON_COMMAND(ID_APP_SHOW_HIDE, &CSCDeskToolsDlg::OnAppShowHide)
@@ -334,6 +345,16 @@ BOOL CSCDeskToolsDlg::OnInitDialog()
 
 	//modeless 컬러 피커. 처음에는 보이지 않게 두고, 메뉴 클릭 시 ShowWindow 로 토글한다.
 	m_color_picker.create(this, _T("Color Picker"), false);
+
+	//20260912 by claude. floating 메시지. 내용이 임의 길이의 본문(OCR 결과)일 수 있어
+	//어두운 라운드 패널 + 흰 글자로 둔다 — 어떤 바탕화면 위에 떠도 대비가 유지된다.
+	//글자 외곽선 대신 패널로 대비를 만드는 쪽이 본문 가독성에는 유리하다.
+	//크기(폰트·라운드·여백)는 띄울 모니터의 DPI 를 따라야 하므로 show_message 에서 매번 정한다.
+	m_message.set_text(this, _T(""), 20, Gdiplus::FontStyleRegular, 0.0f, 0.0f, _T("맑은 고딕"),
+		Gdiplus::Color::White, Gdiplus::Color::Transparent, Gdiplus::Color::Transparent,
+		toast_back_default);
+	m_message.set_text_align(DT_LEFT);
+	m_message.use_control(false);
 
 	//클립보드 변경 감지: 이미지가 있을 때만 "클립보드 이미지 띠우기" 버튼/메뉴를 활성화.
 	::AddClipboardFormatListener(m_hWnd);
@@ -612,7 +633,7 @@ void CSCDeskToolsDlg::show_tools_popup_menu(CPoint pt_screen)
 			if (t.cat != ci.cat)
 				continue;
 			UINT flags = MF_STRING;
-			if (t.id == ID_TOOL_PASTE_CLIPBOARD && !clipboard_has_image())
+			if ((t.id == ID_TOOL_PASTE_CLIPBOARD || t.id == ID_TOOL_OCR_CLIPBOARD) && !clipboard_has_image())
 				flags |= MF_GRAYED;
 
 			//"기능명\tAlt+Shift+X" ? Tab 이후 부분은 OS 가 메뉴 우측에 정렬해 표시.
@@ -1003,6 +1024,448 @@ void CSCDeskToolsDlg::OnToolDropper()
 //본 파일 하단 정의를 앞쪽 사용처에서 참조 가능하게 forward declaration.
 static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h, int dpi_x, int dpi_y);
 static bool decode_png_hglobal_to_bgra(HGLOBAL hg, std::vector<BYTE>& out_bgra_top_down, int& out_w, int& out_h);
+
+//20260912 by claude. OCR 단어 하나의 겉모습. 엔진은 글자 색도 크기도 알려주지 않는다 —
+//단어 상자 안의 원본 픽셀을 되짚어 직접 뽑는 수밖에 없다.
+struct ocr_word_style
+{
+	Gdiplus::Color	cr_text = Gdiplus::Color::Black;
+	Gdiplus::Color	cr_back = Gdiplus::Color::White;
+	float			pt = 10.0f;
+};
+
+//20260912 by claude. 단어 상자 안의 색을 32단계로 양자화해 최빈색을 배경으로 보고,
+//그와 밝기 차가 큰 색 중 최빈색을 글자색으로 잡는다. 글자는 상자 안에서 소수 픽셀이고
+//배경이 다수라는 전제다. 외곽선이 두꺼운 자막체에서는 채움색이 아니라 외곽선 색이 잡히는데,
+//흰 글자가 흰 문서 배경에 묻혀 안 보이는 것보다 그쪽이 낫다.
+static ocr_word_style sample_word_style(const BYTE* bgra, int img_w, int img_h,
+										CRect rc, UINT dpi, int word_height)
+{
+	ocr_word_style style;
+
+	//단어 상자 높이는 글자 px 의 약 0.92 배다 (11~38px 합성 샘플 실측).
+	//화면 px 를 캡처 당시 DPI 로 나눠 pt 로 환산한다.
+	const float em_px = (word_height > 0) ? (word_height / 0.92f) : 16.0f;
+	style.pt = em_px * 72.0f / (float)(dpi > 0 ? dpi : 96);
+
+	rc.left		= max(rc.left, 0);
+	rc.top		= max(rc.top, 0);
+	rc.right	= min(rc.right, img_w);
+	rc.bottom	= min(rc.bottom, img_h);
+	if (rc.Width() <= 0 || rc.Height() <= 0)
+		return style;
+
+	struct bucket
+	{
+		int count = 0;
+		int b = 0;
+		int g = 0;
+		int r = 0;
+	};
+	std::map<DWORD, bucket> hist;
+
+	for (int y = rc.top; y < rc.bottom; ++y)
+	{
+		const BYTE* row = bgra + (size_t)y * img_w * 4;
+		for (int x = rc.left; x < rc.right; ++x)
+		{
+			const BYTE* px = row + (size_t)x * 4;
+			const DWORD key = ((DWORD)(px[2] >> 3) << 10) | ((DWORD)(px[1] >> 3) << 5) | (DWORD)(px[0] >> 3);
+
+			bucket& bk = hist[key];
+			bk.count++;
+			bk.b += px[0];
+			bk.g += px[1];
+			bk.r += px[2];
+		}
+	}
+	if (hist.empty())
+		return style;
+
+	auto lum = [](const bucket& bk) -> int
+	{
+		return (bk.r * 299 + bk.g * 587 + bk.b * 114) / (bk.count * 1000);
+	};
+	auto to_color = [](const bucket& bk) -> Gdiplus::Color
+	{
+		return Gdiplus::Color(255, (BYTE)(bk.r / bk.count), (BYTE)(bk.g / bk.count), (BYTE)(bk.b / bk.count));
+	};
+
+	const bucket* back = NULL;
+	for (const auto& kv : hist)
+	{
+		if (back == NULL || kv.second.count > back->count)
+			back = &kv.second;
+	}
+
+	const int lum_back = lum(*back);
+
+	const bucket* ink = NULL;
+	for (const auto& kv : hist)
+	{
+		if (&kv.second == back)
+			continue;
+		if (abs(lum(kv.second) - lum_back) < 48)
+			continue;
+		if (ink == NULL || kv.second.count > ink->count)
+			ink = &kv.second;
+	}
+
+	if (ink == NULL)
+	{
+		//대비가 약한 이미지 — 그래도 배경에서 가장 먼 색을 글자로 본다.
+		int farthest = -1;
+		for (const auto& kv : hist)
+		{
+			if (&kv.second == back)
+				continue;
+			const int d = abs(lum(kv.second) - lum_back);
+			if (d > farthest)
+			{
+				farthest = d;
+				ink = &kv.second;
+			}
+		}
+	}
+
+	style.cr_back = to_color(*back);
+	if (ink != NULL)
+		style.cr_text = to_color(*ink);
+	return style;
+}
+
+//20260912 by claude. RTF 는 7-bit 스트림이다. 한글은 \uNNNN? 형태로만 안전하게 실린다.
+static CString rtf_escape_text(const CString& text)
+{
+	CString out;
+	for (int i = 0; i < text.GetLength(); ++i)
+	{
+		const TCHAR ch = text[i];
+		if (ch == _T('\\') || ch == _T('{') || ch == _T('}'))
+		{
+			out += _T('\\');
+			out += ch;
+		}
+		else if (ch < 0x80)
+		{
+			out += ch;
+		}
+		else
+		{
+			CString esc;
+			esc.Format(_T("\\u%d?"), (int)(short)ch);
+			out += esc;
+		}
+	}
+	return out;
+}
+
+//20260912 by claude. 단어별 색·크기를 그대로 담은 RTF. 클립보드의 "Rich Text Format" 포맷으로 나간다.
+//글자색은 \cf, 배경색은 \highlight 로 싣는다 — 어두운 테마 화면을 캡처했을 때 흰 글자가
+//흰 문서 배경에 묻히지 않게 하려면 배경도 같이 실어야 한다.
+//20260912 by claude. 단어들이 깔고 있던 배경 중 최빈색. 토스트 패널을 이 색으로 깔면
+//원본에서 이미 확보돼 있던 글자-배경 대비가 그대로 재현된다.
+static Gdiplus::Color get_dominant_back_color(const std::vector<ocr_word_style>& styles)
+{
+	auto quantize = [](Gdiplus::Color cr) -> DWORD
+	{
+		return ((DWORD)(cr.GetR() >> 3) << 10) | ((DWORD)(cr.GetG() >> 3) << 5) | (DWORD)(cr.GetB() >> 3);
+	};
+
+	std::map<DWORD, int> hist;
+	for (const ocr_word_style& style : styles)
+		hist[quantize(style.cr_back)]++;
+
+	DWORD best_key = 0;
+	int best_count = -1;
+	for (const auto& kv : hist)
+	{
+		if (kv.second > best_count)
+		{
+			best_count = kv.second;
+			best_key = kv.first;
+		}
+	}
+
+	//최빈 버킷에 속한 실제 색들의 평균 — 양자화로 뭉갠 값을 되돌린다.
+	int count = 0;
+	int r = 0;
+	int g = 0;
+	int b = 0;
+	for (const ocr_word_style& style : styles)
+	{
+		if (quantize(style.cr_back) != best_key)
+			continue;
+		count++;
+		r += style.cr_back.GetR();
+		g += style.cr_back.GetG();
+		b += style.cr_back.GetB();
+	}
+	if (count == 0)
+		return toast_back_default;
+
+	//패널은 살짝 비쳐야 "떠 있는 창" 으로 읽힌다. 알파는 기본 패널과 같게 둔다.
+	return Gdiplus::Color(toast_back_default.GetA(), (BYTE)(r / count), (BYTE)(g / count), (BYTE)(b / count));
+}
+
+static CString build_rtf(const std::vector<SCOcrWord>& words, const std::vector<ocr_word_style>& styles)
+{
+	std::vector<DWORD> palette;
+	auto color_index = [&palette](Gdiplus::Color cr) -> int
+	{
+		const DWORD key = ((DWORD)cr.GetR() << 16) | ((DWORD)cr.GetG() << 8) | (DWORD)cr.GetB();
+		for (size_t i = 0; i < palette.size(); ++i)
+		{
+			if (palette[i] == key)
+				return (int)i + 1;
+		}
+		palette.push_back(key);
+		return (int)palette.size();
+	};
+
+	CString body;
+	int cur_line = -1;
+
+	for (size_t i = 0; i < words.size(); ++i)
+	{
+		if ((int)words[i].line != cur_line)
+		{
+			if (cur_line >= 0)
+				body += _T("\\par\r\n");
+			cur_line = words[i].line;
+		}
+		else
+		{
+			body += _T(" ");
+		}
+
+		CString run;
+		run.Format(_T("\\cf%d\\highlight%d\\fs%d "),
+			color_index(styles[i].cr_text),
+			color_index(styles[i].cr_back),
+			max(2, (int)(styles[i].pt * 2.0f + 0.5f)));
+		body += run;
+		body += rtf_escape_text(CString(words[i].text.c_str()));
+	}
+
+	CString colortbl = _T("{\\colortbl ;");
+	for (size_t i = 0; i < palette.size(); ++i)
+	{
+		CString one;
+		one.Format(_T("\\red%d\\green%d\\blue%d;"),
+			(int)((palette[i] >> 16) & 0xFF), (int)((palette[i] >> 8) & 0xFF), (int)(palette[i] & 0xFF));
+		colortbl += one;
+	}
+	colortbl += _T("}");
+
+	return CString(_T("{\\rtf1\\ansi\\ansicpg949\\deff0\\uc1\r\n"))
+		+ _T("{\\fonttbl{\\f0\\fnil\\fcharset129 Malgun Gothic;}}\r\n")
+		+ colortbl + _T("\r\n\\viewkind4\\pard\\f0\r\n")
+		+ body + _T("\r\n}");
+}
+
+//20260912 by claude. 토스트용 — SCParagraph 서식 태그로 같은 색·크기를 재현한다.
+//토스트는 원본 배경이 아니라 패널 한 장 위에 글자를 얹는다. 글자색만 원본에서
+//가져오면 패널과 밝기가 비슷할 때 글자가 보이지 않는다 — 실제로 그 사고가 났다.
+//얹을 배경(cr_panel)에 대해 get_readable_text_color 로 확인해서, WCAG 4.5 를 넘으면 원본 색 그대로 두고
+//못 넘을 때만 흑/백 중 대비가 높은 쪽으로 바꾼다. 색을 최대한 살리면서 가독성은 보장된다.
+static CString build_tagged(const std::vector<SCOcrWord>& words, const std::vector<ocr_word_style>& styles,
+							Gdiplus::Color cr_panel)
+{
+	CString out;
+	int cur_line = -1;
+
+	for (size_t i = 0; i < words.size(); ++i)
+	{
+		if ((int)words[i].line != cur_line)
+		{
+			if (cur_line >= 0)
+				out += _T("<br>");
+			cur_line = words[i].line;
+		}
+		else
+		{
+			out += _T(" ");
+		}
+
+		const Gdiplus::Color cr_text = get_readable_text_color(cr_panel, styles[i].cr_text);
+
+		CString tag;
+		tag.Format(_T("<cr=#%02X%02X%02X><sz=%d>"),
+			cr_text.GetR(), cr_text.GetG(), cr_text.GetB(),
+			max(1, (int)(styles[i].pt + 0.5f)));
+		out += tag;
+
+		CString word = words[i].text.c_str();
+		word.Replace(_T("&"), _T("&amp;"));
+		word.Replace(_T("<"), _T("&lt;"));
+		word.Replace(_T(">"), _T("&gt;"));
+		out += word;
+	}
+	return out;
+}
+
+void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, CWnd* center_on)
+{
+	//20260912 by claude. 캡처 노트의 "텍스트 인식" 과 전역 단축키(Alt+Shift+T) 가 함께 타는 단일 경로.
+	//이미지는 이미 클립보드에 있으므로 여기서는 인식한 텍스트를 RTF(색·크기 포함) + 평문으로 넣는다.
+	if (!bgra_top_down || w <= 0 || h <= 0)
+		return;
+
+	CWnd* anchor = (center_on && ::IsWindow(center_on->GetSafeHwnd())) ? center_on : this;
+	const UINT dpi = win_compat::dpi::for_window(anchor->GetSafeHwnd());
+	logWrite(_T("[OCR] 시작 — 이미지 %d x %d, 기준 DPI %d"), w, h, dpi);
+
+	//20260912 by claude. BitBlt 로 뜬 캡처는 alpha 바이트가 0 이다. 32bppARGB 로 넘기면 OcrEngine 이
+	//전면 투명으로 읽어 아무것도 인식하지 못한다. 32bppRGB 는 4번째 바이트를 무시하므로 alpha 를
+	//손대지 않고 불투명으로 전달된다 (SCWinOcr 내부의 LockBits 변환이 alpha 를 255 로 채운다).
+	Gdiplus::Bitmap bmp(w, h, w * 4, PixelFormat32bppRGB, const_cast<BYTE*>(bgra_top_down));
+
+	//20260912 by claude. [진단] 엔진에 넘긴 픽셀을 그대로 파일로 남긴다. 인식이 나쁠 때
+	//"앱이 엉뚱한 픽셀을 넘긴 것"인지 "제대로 넘겼는데 엔진이 못 읽은 것"인지는 이 파일을 봐야 갈린다.
+	{
+		CString folder = get_exe_directory() + _T("\\Log");
+		::CreateDirectory(folder, NULL);
+
+		SYSTEMTIME st;
+		::GetLocalTime(&st);
+
+		CString path;
+		path.Format(_T("%s\\ocr_input_%04d%02d%02d_%02d%02d%02d.png"),
+			folder.GetString(), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+		CSCGdiplusBitmap dump(&bmp);
+		logWrite(_T("[OCR] 입력 덤프 saved=%d '%s'"), dump.save(path) ? 1 : 0, path.GetString());
+	}
+
+	//20260912 by claude. sc_win_ocr_ex 는 내부 MTA 스레드를 join 하므로 그동안 UI 가 멈춘다.
+	CWaitCursor wait;
+	const SCOcrResult result = sc_win_ocr_ex(&bmp);
+
+	logWrite(_T("[OCR] 엔진='%s' 설치된인식기='%s' 입력=%dx%d alpha=%d~%d 라인=%d 단어=%d 단어높이중앙값=%d %dms"),
+		result.language.c_str(), result.languages.c_str(),
+		result.width, result.height, result.alpha_min, result.alpha_max,
+		result.line_count, result.word_count, result.median_word_height, result.elapsed_ms);
+
+	if (!result.error.empty())
+	{
+		logWriteE(_T("[OCR] 실패 — %s"), result.error.c_str());
+
+		CString message;
+		message.Format(_T("텍스트 인식에 실패했습니다.\n\n%s"), result.error.c_str());
+		AfxMessageBox(message, MB_ICONWARNING);
+		return;
+	}
+
+	CString plain = result.text.c_str();
+	plain.Trim();
+	if (plain.IsEmpty() || result.words.empty())
+	{
+		logWriteW(_T("[OCR] 인식된 텍스트 없음"));
+		show_message(_T("인식된 텍스트가 없습니다."), anchor);
+		return;
+	}
+
+	//단어마다 원본 픽셀에서 색을 뽑고 상자 높이로 글자 크기를 환산한다.
+	std::vector<ocr_word_style> styles;
+	styles.reserve(result.words.size());
+	for (const SCOcrWord& word : result.words)
+	{
+		const CRect rc(word.x, word.y, word.x + word.width, word.y + word.height);
+		const ocr_word_style style = sample_word_style(bgra_top_down, w, h, rc, dpi, word.height);
+		styles.push_back(style);
+
+		logWrite(_T("[OCR] word line=%d rect=(%d,%d,%d,%d) 글자=#%02X%02X%02X 배경=#%02X%02X%02X %.1fpt '%s'"),
+			word.line, rc.left, rc.top, rc.Width(), rc.Height(),
+			style.cr_text.GetR(), style.cr_text.GetG(), style.cr_text.GetB(),
+			style.cr_back.GetR(), style.cr_back.GetG(), style.cr_back.GetB(),
+			style.pt, word.text.c_str());
+	}
+
+	const CString rtf = build_rtf(result.words, styles);
+	logWrite(_T("[OCR] RTF %d 자, 평문 %d 자"), rtf.GetLength(), plain.GetLength());
+
+	//RTF(서식) + 평문을 같은 클립보드 세션에 담는다. 워드/한글은 RTF 를, 메모장은 평문을 가져간다.
+	if (::OpenClipboard(m_hWnd))
+	{
+		::EmptyClipboard();
+
+		//"Rich Text Format" 은 7-bit ANSI 스트림이다 (한글은 rtf_escape_text 가 \\uNNNN? 로 바꿔 둠).
+		const CStringA rtf_ansi(rtf);
+		const size_t rtf_bytes = (size_t)rtf_ansi.GetLength() + 1;
+		HGLOBAL hg_rtf = ::GlobalAlloc(GMEM_MOVEABLE, rtf_bytes);
+		if (hg_rtf)
+		{
+			memcpy(::GlobalLock(hg_rtf), (LPCSTR)rtf_ansi, rtf_bytes);
+			::GlobalUnlock(hg_rtf);
+
+			const UINT cf_rtf = ::RegisterClipboardFormat(_T("Rich Text Format"));
+			if (cf_rtf == 0 || ::SetClipboardData(cf_rtf, hg_rtf) == NULL)
+				::GlobalFree(hg_rtf);
+		}
+
+		const size_t text_bytes = ((size_t)plain.GetLength() + 1) * sizeof(TCHAR);
+		HGLOBAL hg_text = ::GlobalAlloc(GMEM_MOVEABLE, text_bytes);
+		if (hg_text)
+		{
+			memcpy(::GlobalLock(hg_text), plain.GetString(), text_bytes);
+			::GlobalUnlock(hg_text);
+
+			if (::SetClipboardData(CF_UNICODETEXT, hg_text) == NULL)
+				::GlobalFree(hg_text);
+		}
+
+		::CloseClipboard();
+	}
+	else
+	{
+		logWriteE(_T("[OCR] OpenClipboard 실패 (%d)"), ::GetLastError());
+	}
+
+	const Gdiplus::Color cr_panel = get_dominant_back_color(styles);
+	logWrite(_T("[OCR] 토스트 패널색 #%02X%02X%02X"), cr_panel.GetR(), cr_panel.GetG(), cr_panel.GetB());
+
+	show_message_tagged(build_tagged(result.words, styles, cr_panel), anchor, cr_panel);
+}
+
+void CSCDeskToolsDlg::show_message(CString message, CWnd* center_on)
+{
+	//20260912 by claude. SCParagraph 는 <...> 를 태그로 읽는다. OCR 결과처럼 임의의 문자열을 그대로 넘기면
+	//<div> 같은 조각이 통째로 사라지거나 엉뚱한 서식이 걸린다. &amp; 를 먼저 바꿔야 이중 변환이 없다.
+	message.Replace(_T("&"), _T("&amp;"));
+	message.Replace(_T("<"), _T("&lt;"));
+	message.Replace(_T(">"), _T("&gt;"));
+
+	show_message_tagged(message, center_on);
+}
+
+void CSCDeskToolsDlg::show_message_tagged(CString tagged, CWnd* center_on, Gdiplus::Color cr_panel)
+{
+	//알파 0 = "패널색 지정 없음". 기본 어두운 패널을 쓴다.
+	m_message.get_text_setting()->text_prop.cr_back = (cr_panel.GetA() == 0) ? toast_back_default : cr_panel;
+
+	CWnd* anchor = (center_on && ::IsWindow(center_on->GetSafeHwnd())) ? center_on : this;
+
+	const CRect rc_monitor = get_monitor_rect(get_monitor_index(anchor->GetSafeHwnd()));
+
+	//이 창은 DPI 를 따라 커져야 하는 UI 다 (§4.6). m_dpi 가 아니라 지금 띄울 모니터의 DPI 로 환산한다 —
+	//메인 다이얼로그는 숨어 있거나 다른 모니터에 있을 수 있다.
+	const UINT dpi = monitor_dpi_for_window(anchor->GetSafeHwnd());
+	m_message.get_text_setting()->text_prop.size = win_compat::dpi::scale_f(20.0f, dpi);
+	m_message.set_round(win_compat::dpi::scale_f(12.0f, dpi), false);
+	m_message.set_margin(win_compat::dpi::scale_f(16.0f, dpi), false);
+
+	//한 줄이 화면을 가로지르면 읽기 어렵다. 기준 모니터 폭의 절반에서 줄바꿈시킨다.
+	m_message.set_max_width(rc_monitor.Width() / 2);
+
+	m_message.set_text(tagged);
+	m_message.CenterWindow(anchor);
+
+	//캡처 노트가 WS_EX_TOPMOST 라 그냥 띄우면 그 아래로 들어가 가려진다.
+	m_message.SetWindowPos(&wndTopMost, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+	m_message.fade_in(0, 1000, true);
+}
 
 void CSCDeskToolsDlg::send_image_to_clipboard_and_note(const BYTE* bgra_top_down, int w, int h, POINT note_pos)
 {
@@ -2096,20 +2559,21 @@ void CSCDeskToolsDlg::OnToolRuler()
 	dlg.run_modal_loop(this);
 }
 
-void CSCDeskToolsDlg::OnToolPasteClipboard()
+//20260912 by claude. 클립보드의 이미지를 top-down 32bpp BGRA 로 읽는다.
+//노트로 띄우기(Alt+Shift+V)와 텍스트 인식(Alt+Shift+T)이 같은 입력을 봐야 하므로 한 곳에 둔다.
+bool CSCDeskToolsDlg::read_clipboard_image_bgra(std::vector<BYTE>& bgra, int& width, int& height)
 {
-	//클립보드의 이미지 (CF_DIB) 를 읽어 floating note 로 띠움.
-	//테스트용으로 매번 캡처할 필요 없게 한다 ? 다른 앱에서 Ctrl+C 한 이미지를 붙여넣기.
+	width = 0;
+	height = 0;
+	bgra.clear();
+
 	if (!::OpenClipboard(m_hWnd))
 	{
 		AfxMessageBox(_T("클립보드 열기 실패"));
-		return;
+		return false;
 	}
 
 	bool ok = false;
-	int width = 0;
-	int height = 0;
-	std::vector<BYTE> bgra;	//top-down 32bpp BGRA
 
 	//1) PNG 우선 — alpha 보존 (freehand / 라운드 코너 캡처 등 투명 영역 살림).
 	const UINT cf_png = ::RegisterClipboardFormat(_T("PNG"));
@@ -2188,13 +2652,44 @@ void CSCDeskToolsDlg::OnToolPasteClipboard()
 
 	::CloseClipboard();
 
-	if (!ok)
+	return ok;
+}
+
+void CSCDeskToolsDlg::OnToolPasteClipboard()
+{
+	//클립보드의 이미지를 읽어 floating note 로 띄운다.
+	//테스트용으로 매번 캡처할 필요 없게 한다 — 다른 앱에서 Ctrl+C 한 이미지를 붙여넣기.
+	std::vector<BYTE> bgra;
+	int width = 0;
+	int height = 0;
+
+	if (!read_clipboard_image_bgra(bgra, width, height))
 	{
 		AfxMessageBox(_T("클립보드에 이미지가 없거나 지원되지 않는 형식입니다.\n(24/32bpp DIB 만 지원)"));
 		return;
 	}
 
 	CSCCapturedNoteDlg::spawn(bgra.data(), width, height, NULL);
+}
+
+//20260912 by claude. 전역 단축키(Alt+Shift+T) — 캡처 노트를 띄우지 않는 설정에서도 인식할 수 있어야 한다.
+//캡처하면 이미지가 곧바로 클립보드에 들어가므로, 그 마지막 이미지를 대상으로 삼는다.
+//인식 이후(클립보드 기록·floating 표시)는 노트의 Ctrl+T 와 완전히 같은 경로다.
+void CSCDeskToolsDlg::OnToolOcrClipboard()
+{
+	std::vector<BYTE> bgra;
+	int width = 0;
+	int height = 0;
+
+	if (!read_clipboard_image_bgra(bgra, width, height))
+	{
+		logWriteW(_T("[OCR] 클립보드에 인식할 이미지가 없음"));
+		show_message(_T("클립보드에 이미지가 없습니다."), NULL);
+		return;
+	}
+
+	//center_on 은 주지 않는다 — 노트가 없는 상황이라 메인 다이얼로그(숨어 있어도 위치는 유효) 기준이 된다.
+	run_ocr_on_bgra(bgra.data(), width, height, NULL);
 }
 
 void CSCDeskToolsDlg::OnAppShowHide()

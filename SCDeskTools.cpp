@@ -13,6 +13,9 @@
 
 // CSCDeskToolsApp
 
+//20260912 by claude. 로그 파일은 <exe 폴더>\Log\SCDeskTools_yyyymmdd_hhmmss.log 로 매 실행마다 새로 생긴다.
+CSCLog gLog;
+
 BEGIN_MESSAGE_MAP(CSCDeskToolsApp, CWinApp)
 	ON_COMMAND(ID_HELP, &CWinApp::OnHelp)
 END_MESSAGE_MAP()
@@ -74,6 +77,8 @@ BOOL CSCDeskToolsApp::InitInstance()
 	InitCommonControlsEx(&InitCtrls);
 
 	CWinApp::InitInstance();
+
+	gLog.write_start_log();
 
 
 	AfxEnableControlContainer();

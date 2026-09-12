@@ -2,6 +2,7 @@
 
 #include "pch.h"
 #include "SCCapturedNoteDlg.h"
+#include "SCDeskToolsDlg.h"
 #include "Common/Functions.h"
 #include "Common/win_compat/dwm.h"
 #include "Common/CDialog/CSCColorPicker/SCColorPicker.h"
@@ -608,6 +609,7 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 	menu.CreatePopupMenu();
 	menu.AppendMenu(MF_STRING, cmd_copy,	_T("클립보드로 복사(&C)\tCtrl+C"));
 	menu.AppendMenu(MF_STRING, cmd_save,	_T("이미지 저장(&S)...\tCtrl+S"));
+	menu.AppendMenu(MF_STRING, cmd_ocr,		_T("텍스트 인식(&O)\tCtrl+T"));
 	menu.AppendMenu(MF_SEPARATOR);
 	menu.AppendMenu(flag_100,	cmd_zoom_100, _T("100% 크기\tCtrl+W"));
 	menu.AppendMenu(flag_fit,	cmd_zoom_fit, _T("창에 맞춤(&F)\tCtrl+F"));
@@ -658,6 +660,16 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 		case cmd_copy:
 			m_img_dlg.copy_to_clipboard();
 			break;
+
+		case cmd_ocr:
+		{
+			//20260912 by claude. 인식·클립보드·표시는 전부 메인 다이얼로그가 한다. 클립보드 이미지에
+			//대한 전역 단축키(Alt+Shift+T)와 같은 경로를 타야 두 입구의 동작이 어긋나지 않는다.
+			auto* main_dlg = dynamic_cast<CSCDeskToolsDlg*>(AfxGetMainWnd());
+			if (main_dlg && !m_bgra_data.empty() && m_img_w > 0 && m_img_h > 0)
+				main_dlg->run_ocr_on_bgra(m_bgra_data.data(), m_img_w, m_img_h, this);
+			break;
+		}
 		case cmd_zoom_100:
 		{
 			//100% = 이미지 픽셀 1:1 + 창 크기를 이미지 크기에 맞춰 자동 조정.
@@ -933,6 +945,7 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 		case 'S':	//Ctrl+S = 이미지 저장
 		case 'W':	//Ctrl+W = 100% 크기
 		case 'F':	//Ctrl+F = 창에 맞춤
+		case 'T':	//Ctrl+T = 텍스트 인식(OCR)
 			if (::GetAsyncKeyState(VK_CONTROL) & 0x8000)
 			{
 				int cmd = 0;
@@ -942,6 +955,7 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 				case 'S': cmd = cmd_save;	break;
 				case 'W': cmd = cmd_zoom_100; break;
 				case 'F': cmd = cmd_zoom_fit; break;
+				case 'T': cmd = cmd_ocr;	break;
 				}
 				if (cmd)
 				{

@@ -20,6 +20,7 @@
 #define ID_TOOL_RULER					32780
 #define ID_TOOL_CAPTURE_FULLSCREEN		32781
 #define ID_TOOL_CAPTURE_FREEHAND		32782
+#define ID_TOOL_OCR_CLIPBOARD			32783
 
 //모니터별 캡처 — 멀티 모니터 환경에서 동적 메뉴 항목용 ID 범위. 16 모니터까지.
 #define ID_TOOL_CAPTURE_MONITOR_FIRST	32800

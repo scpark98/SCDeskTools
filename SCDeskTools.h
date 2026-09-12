@@ -10,6 +10,10 @@
 
 #include "resource.h"		// 주 기호입니다.
 #include "Common/system/CSCSelfPatch/SCSelfPatch.h"
+#include "Common/log/SCLog/SCLog.h"
+
+//20260912 by claude. 실체는 SCDeskTools.cpp. logWrite() 매크로가 이 인스턴스를 통해 기록한다.
+extern CSCLog gLog;
 
 
 // CSCDeskToolsApp:
