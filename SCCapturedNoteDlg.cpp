@@ -5,6 +5,7 @@
 #include "SCDeskToolsDlg.h"
 #include "Common/Functions.h"
 #include "Common/win_compat/dwm.h"
+#include "Common/SCGdiplusBitmap.h"
 #include "Common/CDialog/CSCColorPicker/SCColorPicker.h"
 
 //노트 배경은 노트 하나가 아니라 앱 전체 설정 — 여기서 바꾼 값이 이후 캡처 노트에도 그대로 적용된다.
@@ -611,6 +612,9 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 	menu.AppendMenu(MF_STRING, cmd_save,	_T("이미지 저장(&S)...\tCtrl+S"));
 	menu.AppendMenu(MF_STRING, cmd_ocr,		_T("텍스트 인식(&O)\tCtrl+T"));
 	menu.AppendMenu(MF_SEPARATOR);
+	menu.AppendMenu(MF_STRING, cmd_rotate_left,	_T("왼쪽으로 90도 회전\tCtrl+Left"));
+	menu.AppendMenu(MF_STRING, cmd_rotate_right,	_T("오른쪽으로 90도 회전\tCtrl+Right"));
+	menu.AppendMenu(MF_SEPARATOR);
 	menu.AppendMenu(flag_100,	cmd_zoom_100, _T("100% 크기\tCtrl+W"));
 	menu.AppendMenu(flag_fit,	cmd_zoom_fit, _T("창에 맞춤(&F)\tCtrl+F"));
 
@@ -653,6 +657,60 @@ void CSCCapturedNoteDlg::show_context_menu(CPoint pt_screen)
 		execute_cmd(cmd);
 }
 
+void CSCCapturedNoteDlg::rotate_image(bool clockwise)
+{
+	//20260912 by claude. 회전 자체는 Common 이 이미 갖고 있다 (CSCGdiplusBitmap::rotate).
+	//여기서 하는 일은 그 결과를 노트의 세 곳 — 픽셀 버퍼 / D2D 비트맵 / 창 크기 — 에 반영하는 것이다.
+	if (m_bgra_data.empty() || m_img_w <= 0 || m_img_h <= 0)
+		return;
+
+	//회전 후에도 같은 크기로 보여야 한다. 지금 화면에 그려지는 배율을 먼저 재 둔다.
+	const CRect rc_disp = m_img_dlg.get_displayed_rect();
+	double scale = (rc_disp.Width() > 0) ? ((double)rc_disp.Width() / m_img_w) : 1.0;
+	if (scale <= 0.0)
+		scale = 1.0;
+
+	//32bppARGB 로 넘긴다 — 자유 영역 캡처나 라운드 코너의 투명 영역이 회전 후에도 살아야 한다.
+	Gdiplus::Bitmap src(m_img_w, m_img_h, m_img_w * 4, PixelFormat32bppARGB,
+		const_cast<BYTE*>(m_bgra_data.data()));
+
+	CSCGdiplusBitmap img(&src);
+	img.rotate(clockwise ? Gdiplus::Rotate90FlipNone : Gdiplus::Rotate270FlipNone);
+
+	if (img.m_pBitmap == NULL || img.width <= 0 || img.height <= 0)
+		return;
+
+	const int nw = img.width;
+	const int nh = img.height;
+
+	Gdiplus::Rect rc_lock(0, 0, nw, nh);
+	Gdiplus::BitmapData bd;
+	if (img.m_pBitmap->LockBits(&rc_lock, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bd) != Gdiplus::Ok)
+		return;
+
+	std::vector<BYTE> rotated((size_t)nw * nh * 4);
+	for (int y = 0; y < nh; ++y)
+	{
+		memcpy(rotated.data() + (size_t)y * nw * 4,
+			(const BYTE*)bd.Scan0 + (size_t)y * bd.Stride,
+			(size_t)nw * 4);
+	}
+	img.m_pBitmap->UnlockBits(&bd);
+
+	m_bgra_data = std::move(rotated);
+	m_img_w = nw;
+	m_img_h = nh;
+
+	if (FAILED(m_image.load(m_d2.get_WICFactory(), m_d2.get_d2dc(), m_bgra_data.data(), nw, nh, 4)))
+		return;
+
+	m_img_dlg.set_image(&m_image);
+
+	apply_display_scale(scale);
+	resize_client_to(max(1, (int)(nw * scale + 0.5)), max(1, (int)(nh * scale + 0.5)), NULL);
+	Invalidate();
+}
+
 void CSCCapturedNoteDlg::execute_cmd(int cmd)
 {
 	switch (cmd)
@@ -690,6 +748,14 @@ void CSCCapturedNoteDlg::execute_cmd(int cmd)
 			resize_client_to(target_cx, target_cy, NULL);
 			break;
 		}
+		case cmd_rotate_left:
+			rotate_image(false);
+			break;
+
+		case cmd_rotate_right:
+			rotate_image(true);
+			break;
+
 		case cmd_zoom_fit:
 			//창에 맞춤 = fit2ctrl(true). zoom() 과 별개의 모드 (m_fit2ctrl flag).
 			m_img_dlg.fit2ctrl(true);
@@ -946,6 +1012,10 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 		case 'W':	//Ctrl+W = 100% 크기
 		case 'F':	//Ctrl+F = 창에 맞춤
 		case 'T':	//Ctrl+T = 텍스트 인식(OCR)
+
+		//20260912 by claude. 90도 회전. Alt+방향키는 이미 자유각(15도/1도) 회전이 쓰고 있어 Ctrl 로 둔다.
+		case VK_LEFT:
+		case VK_RIGHT:
 			if (::GetAsyncKeyState(VK_CONTROL) & 0x8000)
 			{
 				int cmd = 0;
@@ -956,6 +1026,8 @@ BOOL CSCCapturedNoteDlg::PreTranslateMessage(MSG* pMsg)
 				case 'W': cmd = cmd_zoom_100; break;
 				case 'F': cmd = cmd_zoom_fit; break;
 				case 'T': cmd = cmd_ocr;	break;
+				case VK_LEFT:  cmd = cmd_rotate_left;  break;
+				case VK_RIGHT: cmd = cmd_rotate_right; break;
 				}
 				if (cmd)
 				{

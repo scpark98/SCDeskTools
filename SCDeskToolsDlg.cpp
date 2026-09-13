@@ -1024,9 +1024,28 @@ void CSCDeskToolsDlg::OnToolDropper()
 //본 파일 하단 정의를 앞쪽 사용처에서 참조 가능하게 forward declaration.
 static HGLOBAL encode_bgra_to_png_hglobal(const BYTE* bgra_top_down, int w, int h, int dpi_x, int dpi_y);
 static bool decode_png_hglobal_to_bgra(HGLOBAL hg, std::vector<BYTE>& out_bgra_top_down, int& out_w, int& out_h);
+static void ring_median_color(const std::vector<DWORD>& v, BYTE out_bgr[3]);
 
 //20260912 by claude. OCR 단어 하나의 겉모습. 엔진은 글자 색도 크기도 알려주지 않는다 —
 //단어 상자 안의 원본 픽셀을 되짚어 직접 뽑는 수밖에 없다.
+//20260912 by claude. Windows OCR 은 글자 크기에 매우 민감하다. 어느 배율이 맞는지는 계산으로 알 수 없어
+//(엔진이 못 찾은 글자는 어떤 통계에도 안 잡힌다) 여러 배율로 실제로 넣어 보고 결과로 고른다.
+//20260913 by claude. 덤프 16장 정답셋으로 후보 집합을 실측해 정했다 — 6개면 9개와 거의 같고(0.926 vs 0.929)
+//후보 개수가 곧 인식 횟수다. 간격을 더 벌리지 말 것: 결과가 배율에 단조롭지 않아 사이를 지나치면 놓친다.
+static const double ocr_scale_candidates[] = { 1.0, 1.2, 1.4, 1.6, 2.0, 2.5 };
+
+//20260913 by claude. 확대 전 원본에 한 번 거는 언샤프. 실측(정답셋 16장, 합의 선택 기준):
+//  전처리 없음 0.899 / 회색조 0.904 / 자동대비 0.905 / 선명화 0.927
+//강도를 더 올리면 오히려 나빠진다 (percent 200 에서 0.902). 이 값을 함부로 키우지 말 것.
+static const int ocr_unsharp_percent = 160;
+static const int ocr_unsharp_threshold = 2;
+
+//OcrEngine::MaxImageDimension. 이 머신에서 10000 으로 확인했다. 확대가 이 한도를 넘으면 안 된다.
+static const int ocr_max_image_dimension = 10000;
+
+//확대는 면적에 비례해 메모리와 시간을 먹는다. 4K 전체 캡처를 x2.5 하면 200MB 가 넘는다.
+static const double ocr_max_pixels = 40.0 * 1000.0 * 1000.0;
+
 struct ocr_word_style
 {
 	Gdiplus::Color	cr_text = Gdiplus::Color::Black;
@@ -1034,27 +1053,67 @@ struct ocr_word_style
 	float			pt = 10.0f;
 };
 
-//20260912 by claude. 단어 상자 안의 색을 32단계로 양자화해 최빈색을 배경으로 보고,
-//그와 밝기 차가 큰 색 중 최빈색을 글자색으로 잡는다. 글자는 상자 안에서 소수 픽셀이고
-//배경이 다수라는 전제다. 외곽선이 두꺼운 자막체에서는 채움색이 아니라 외곽선 색이 잡히는데,
-//흰 글자가 흰 문서 배경에 묻혀 안 보이는 것보다 그쪽이 낫다.
-static ocr_word_style sample_word_style(const BYTE* bgra, int img_w, int img_h,
-										CRect rc, UINT dpi, int word_height)
+//20260912 by claude. 잉크로 칠 픽셀의 최소 밝기 차. 배경과 이만큼 떨어지면 글자로 본다.
+static const int ocr_ink_luminance_min = 48;
+
+//20260912 by claude. 색이 "갈렸다" 고 볼 채널합 거리. 실측(빙수가 / 빚까지 자막)에서 같은 색 안의
+//열 간 편차는 41 이하, 다른 색 사이는 92 이상으로 뚜렷하게 나뉘었다. 그 사이를 잡는다.
+static const int ocr_color_split_distance = 64;
+
+//경계의 안티에일리어싱 한두 열에 흔들리지 않도록, 새 색이 이만큼 연속돼야 색이 바뀐 것으로 인정한다.
+static const int ocr_color_split_run = 3;
+
+//20260912 by claude. 단어 상자의 배경색. 상자 "바깥" 테두리에서 잡는다.
+//처음에는 상자 안의 최빈색을 배경으로 봤는데 그게 틀렸다 — 크고 굵은 글자는 잉크가 상자의 절반을
+//넘어서, 검정 글자가 배경으로 흰 여백이 글자로 뒤집혔다 (실측: '150매' 가 글자=#D2CCCA 배경=#221D1B).
+//상자 바깥은 잉크 비율과 무관하게 배경이다.
+static Gdiplus::Color sample_back_color(const BYTE* bgra, int img_w, int img_h, CRect rc)
 {
-	ocr_word_style style;
+	CRect rc_ring = rc;
+	rc_ring.InflateRect(max(2, rc.Height() / 8), max(2, rc.Height() / 8));
+	rc_ring.left    = max(rc_ring.left, 0);
+	rc_ring.top     = max(rc_ring.top, 0);
+	rc_ring.right   = min(rc_ring.right, img_w);
+	rc_ring.bottom  = min(rc_ring.bottom, img_h);
 
-	//단어 상자 높이는 글자 px 의 약 0.92 배다 (11~38px 합성 샘플 실측).
-	//화면 px 를 캡처 당시 DPI 로 나눠 pt 로 환산한다.
-	const float em_px = (word_height > 0) ? (word_height / 0.92f) : 16.0f;
-	style.pt = em_px * 72.0f / (float)(dpi > 0 ? dpi : 96);
+	std::vector<DWORD> ring;
+	for (int y = rc_ring.top; y < rc_ring.bottom; ++y)
+	{
+		for (int x = rc_ring.left; x < rc_ring.right; ++x)
+		{
+			if (x >= rc.left && x < rc.right && y >= rc.top && y < rc.bottom)
+				continue;
 
-	rc.left		= max(rc.left, 0);
-	rc.top		= max(rc.top, 0);
-	rc.right	= min(rc.right, img_w);
-	rc.bottom	= min(rc.bottom, img_h);
-	if (rc.Width() <= 0 || rc.Height() <= 0)
-		return style;
+			const BYTE* px = bgra + ((size_t)y * img_w + x) * 4;
+			ring.push_back((DWORD)px[0] | ((DWORD)px[1] << 8) | ((DWORD)px[2] << 16));
+		}
+	}
 
+	if (ring.size() < 8)
+		return Gdiplus::Color::Black;   //상자가 이미지 가장자리에 붙은 경우 — 호출자가 대비로 보정한다.
+
+	BYTE bgr[3] = { 0, 0, 0 };
+	ring_median_color(ring, bgr);
+	return Gdiplus::Color(255, bgr[2], bgr[1], bgr[0]);
+}
+
+static int color_luminance(Gdiplus::Color cr)
+{
+	return (cr.GetR() * 299 + cr.GetG() * 587 + cr.GetB() * 114) / 1000;
+}
+
+static int color_distance(Gdiplus::Color a, Gdiplus::Color b)
+{
+	return abs((int)a.GetR() - (int)b.GetR())
+		+ abs((int)a.GetG() - (int)b.GetG())
+		+ abs((int)a.GetB() - (int)b.GetB());
+}
+
+//20260912 by claude. 상자 안에서 배경과 밝기가 가장 먼 색 = 글자색. 안티에일리어싱 때문에 중간 톤이
+//잔뜩 끼므로 "최빈" 이 아니라 "최원" 이 실제 잉크다. 점 하나짜리 노이즈를 피하려고 최소 픽셀 수를 둔다.
+//대비가 거의 없으면 배경 위에서 읽히는 흑/백으로 물러선다.
+static Gdiplus::Color sample_ink_color(const BYTE* bgra, int img_w, int img_h, CRect rc, Gdiplus::Color cr_back)
+{
 	struct bucket
 	{
 		int count = 0;
@@ -1066,10 +1125,9 @@ static ocr_word_style sample_word_style(const BYTE* bgra, int img_w, int img_h,
 
 	for (int y = rc.top; y < rc.bottom; ++y)
 	{
-		const BYTE* row = bgra + (size_t)y * img_w * 4;
 		for (int x = rc.left; x < rc.right; ++x)
 		{
-			const BYTE* px = row + (size_t)x * 4;
+			const BYTE* px = bgra + ((size_t)y * img_w + x) * 4;
 			const DWORD key = ((DWORD)(px[2] >> 3) << 10) | ((DWORD)(px[1] >> 3) << 5) | (DWORD)(px[0] >> 3);
 
 			bucket& bk = hist[key];
@@ -1080,58 +1138,275 @@ static ocr_word_style sample_word_style(const BYTE* bgra, int img_w, int img_h,
 		}
 	}
 	if (hist.empty())
-		return style;
+		return get_readable_text_color(cr_back);
 
-	auto lum = [](const bucket& bk) -> int
-	{
-		return (bk.r * 299 + bk.g * 587 + bk.b * 114) / (bk.count * 1000);
-	};
-	auto to_color = [](const bucket& bk) -> Gdiplus::Color
-	{
-		return Gdiplus::Color(255, (BYTE)(bk.r / bk.count), (BYTE)(bk.g / bk.count), (BYTE)(bk.b / bk.count));
-	};
+	const int lum_back = color_luminance(cr_back);
+	const int min_count = max(4, (rc.Width() * rc.Height()) / 100);
 
-	const bucket* back = NULL;
+	Gdiplus::Color ink = cr_back;
+	int farthest = -1;
+
 	for (const auto& kv : hist)
 	{
-		if (back == NULL || kv.second.count > back->count)
-			back = &kv.second;
-	}
-
-	const int lum_back = lum(*back);
-
-	const bucket* ink = NULL;
-	for (const auto& kv : hist)
-	{
-		if (&kv.second == back)
+		if (kv.second.count < min_count)
 			continue;
-		if (abs(lum(kv.second) - lum_back) < 48)
-			continue;
-		if (ink == NULL || kv.second.count > ink->count)
-			ink = &kv.second;
-	}
 
-	if (ink == NULL)
-	{
-		//대비가 약한 이미지 — 그래도 배경에서 가장 먼 색을 글자로 본다.
-		int farthest = -1;
-		for (const auto& kv : hist)
+		const Gdiplus::Color cr(255,
+			(BYTE)(kv.second.r / kv.second.count),
+			(BYTE)(kv.second.g / kv.second.count),
+			(BYTE)(kv.second.b / kv.second.count));
+
+		const int distance = abs(color_luminance(cr) - lum_back);
+		if (distance > farthest)
 		{
-			if (&kv.second == back)
-				continue;
-			const int d = abs(lum(kv.second) - lum_back);
-			if (d > farthest)
-			{
-				farthest = d;
-				ink = &kv.second;
-			}
+			farthest = distance;
+			ink = cr;
 		}
 	}
 
-	style.cr_back = to_color(*back);
-	if (ink != NULL)
-		style.cr_text = to_color(*ink);
+	if (farthest < 24)
+		return get_readable_text_color(cr_back);
+	return ink;
+}
+
+//20260912 by claude. 단어 상자 높이로 글자 크기를 환산한다.
+//[가정] 단어 상자 높이 = 글자 px 의 약 0.92 배. 11~38px 에서 실측했으나 표본이 맑은 고딕 합성 샘플
+//한 종류뿐이다. 서체·장평이 다르면 어긋난다 — 틀려도 글자 크기(pt)만 달라지고 인식에는 영향이 없다.
+static float word_point_size(int word_height, UINT dpi)
+{
+	const float em_px = (word_height > 0) ? (word_height / 0.92f) : 16.0f;
+	return em_px * 72.0f / (float)(dpi > 0 ? dpi : 96);
+}
+
+static ocr_word_style sample_word_style(const BYTE* bgra, int img_w, int img_h,
+										CRect rc, UINT dpi, int word_height)
+{
+	ocr_word_style style;
+	style.pt = word_point_size(word_height, dpi);
+
+	rc.left     = max(rc.left, 0);
+	rc.top      = max(rc.top, 0);
+	rc.right    = min(rc.right, img_w);
+	rc.bottom   = min(rc.bottom, img_h);
+	if (rc.Width() <= 0 || rc.Height() <= 0)
+		return style;
+
+	style.cr_back = sample_back_color(bgra, img_w, img_h, rc);
+	style.cr_text = sample_ink_color(bgra, img_w, img_h, rc, style.cr_back);
 	return style;
+}
+
+//20260912 by claude. 한 단어 안에서 글자색이 바뀌면 그 지점에서 쪼갠다.
+//엔진은 단어 단위로만 돌려주므로 "빙수가"(핑크+흰색), "빚까지"(연두+주황) 처럼 색이 섞인 단어가
+//통째로 한 색이 되어 버린다 — 그것도 밝은 쪽이 이기므로 핑크가 크림색으로 둔갑했다.
+//
+//열마다 잉크 색을 재어 색이 유지되는 구간(run)으로 나눈 뒤, 글자를 그 구간에 배분한다.
+//[가정] 한 단어 안의 글자 폭은 고르다. 구간 경계가 몇 번째 글자에 해당하는지를 폭 비율로 정하기
+//때문이다. 한글은 음절 폭이 고르므로 잘 맞는다 (실측: 빙수가 0.69 vs 2/3, 빚까지 0.31 vs 1/3).
+//라틴 문자처럼 폭이 들쭉날쭉하면 경계가 한 글자 어긋날 수 있다. 색이 하나뿐인 단어는 영향 없다.
+static void split_word_by_color(const BYTE* bgra, int img_w, int img_h, CRect rc, UINT dpi,
+								int word_height, const CString& text,
+								std::vector<CString>& out_text, std::vector<ocr_word_style>& out_style)
+{
+	const ocr_word_style whole = sample_word_style(bgra, img_w, img_h, rc, dpi, word_height);
+
+	rc.left     = max(rc.left, 0);
+	rc.top      = max(rc.top, 0);
+	rc.right    = min(rc.right, img_w);
+	rc.bottom   = min(rc.bottom, img_h);
+
+	const int count = text.GetLength();
+	if (count <= 1 || rc.Width() <= 0 || rc.Height() <= 0)
+	{
+		out_text.push_back(text);
+		out_style.push_back(whole);
+		return;
+	}
+
+	const int lum_back = color_luminance(whole.cr_back);
+
+	//열마다 잉크 픽셀의 평균색. 잉크가 없거나 획이 얇게 스치기만 하는 열은 색이 흐려 기준이 못 된다 —
+	//그런 열을 기준으로 삼으면 단색 단어까지 잘게 쪼개진다 (실측: '아이고' 가 3조각).
+	const int min_ink = max(2, rc.Height() / 6);
+
+	std::vector<Gdiplus::Color> column(rc.Width(), Gdiplus::Color::Transparent);
+	for (int x = rc.left; x < rc.right; ++x)
+	{
+		int n = 0;
+		int sr = 0;
+		int sg = 0;
+		int sb = 0;
+
+		for (int y = rc.top; y < rc.bottom; ++y)
+		{
+			const BYTE* px = bgra + ((size_t)y * img_w + x) * 4;
+			const Gdiplus::Color cr(255, px[2], px[1], px[0]);
+			if (abs(color_luminance(cr) - lum_back) < ocr_ink_luminance_min)
+				continue;
+
+			n++;
+			sr += px[2];
+			sg += px[1];
+			sb += px[0];
+		}
+
+		if (n >= min_ink)
+			column[x - rc.left] = Gdiplus::Color(255, (BYTE)(sr / n), (BYTE)(sg / n), (BYTE)(sb / n));
+	}
+
+	//색이 유지되는 구간으로 나눈다. 비교 기준은 그 구간의 "평균" 색이다 — 시작 열 하나를 기준으로
+	//삼으면 그 열이 어두운 가장자리일 때 같은 색인데도 갈라진다. 경계의 흔들림은 연속 조건으로 무시한다.
+	std::vector<int> run_start;     //구간 시작 (rc.left 기준 offset)
+	int acc_r = 0;
+	int acc_g = 0;
+	int acc_b = 0;
+	int acc_n = 0;
+
+	std::vector<int> pending_index;
+	std::vector<Gdiplus::Color> pending_color;
+
+	for (int i = 0; i < (int)column.size(); ++i)
+	{
+		if (column[i].GetA() == 0)
+			continue;
+
+		if (run_start.empty())
+		{
+			run_start.push_back(i);
+			acc_r = column[i].GetR();
+			acc_g = column[i].GetG();
+			acc_b = column[i].GetB();
+			acc_n = 1;
+			continue;
+		}
+
+		const Gdiplus::Color average(255, (BYTE)(acc_r / acc_n), (BYTE)(acc_g / acc_n), (BYTE)(acc_b / acc_n));
+
+		if (color_distance(column[i], average) <= ocr_color_split_distance)
+		{
+			pending_index.clear();
+			pending_color.clear();
+
+			acc_r += column[i].GetR();
+			acc_g += column[i].GetG();
+			acc_b += column[i].GetB();
+			acc_n++;
+			continue;
+		}
+
+		pending_index.push_back(i);
+		pending_color.push_back(column[i]);
+
+		if ((int)pending_index.size() >= ocr_color_split_run)
+		{
+			run_start.push_back(pending_index.front());
+
+			acc_r = 0;
+			acc_g = 0;
+			acc_b = 0;
+			for (const Gdiplus::Color& cr : pending_color)
+			{
+				acc_r += cr.GetR();
+				acc_g += cr.GetG();
+				acc_b += cr.GetB();
+			}
+			acc_n = (int)pending_color.size();
+
+			pending_index.clear();
+			pending_color.clear();
+		}
+	}
+
+	//이웃 구간의 대표색이 가까우면 도로 합친다. 열 단위 판정은 획 모양에 흔들리므로,
+	//마지막에 "구간 전체의 색" 으로 한 번 더 걸러야 진짜 색이 바뀐 곳만 남는다.
+	if (run_start.size() > 1)
+	{
+		std::vector<int> merged;
+		Gdiplus::Color prev = Gdiplus::Color::Transparent;
+
+		for (size_t k = 0; k < run_start.size(); ++k)
+		{
+			const int from = run_start[k];
+			const int to = (k + 1 < run_start.size()) ? run_start[k + 1] : rc.Width();
+
+			CRect rc_run = rc;
+			rc_run.left = rc.left + from;
+			rc_run.right = rc.left + max(from + 1, to);
+			if (rc_run.right > rc.right)
+				rc_run.right = rc.right;
+
+			const Gdiplus::Color cr = sample_ink_color(bgra, img_w, img_h, rc_run, whole.cr_back);
+
+			if (!merged.empty() && color_distance(cr, prev) <= ocr_color_split_distance)
+				continue;
+
+			merged.push_back(from);
+			prev = cr;
+		}
+		run_start = merged;
+	}
+
+	if (run_start.size() <= 1)
+	{
+		out_text.push_back(text);
+		out_style.push_back(whole);
+		return;
+	}
+
+	//글자를 구간에 배분한다 — 글자 i 의 중점이 어느 구간에 드는가.
+	const double char_w = (double)rc.Width() / count;
+	int begin = 0;
+
+	while (begin < count)
+	{
+		const int mid = (int)((begin + 0.5) * char_w);
+		int run = 0;
+		for (size_t k = 0; k < run_start.size(); ++k)
+		{
+			if (mid >= run_start[k])
+				run = (int)k;
+		}
+
+		int end = begin + 1;
+		while (end < count)
+		{
+			const int mid_next = (int)((end + 0.5) * char_w);
+			int run_next = 0;
+			for (size_t k = 0; k < run_start.size(); ++k)
+			{
+				if (mid_next >= run_start[k])
+					run_next = (int)k;
+			}
+			if (run_next != run)
+				break;
+			end++;
+		}
+
+		CRect rc_part = rc;
+		rc_part.left  = rc.left + (int)(begin * char_w);
+		rc_part.right = rc.left + (int)(end * char_w);
+		if (rc_part.right > rc.right)
+			rc_part.right = rc.right;
+
+		//20260913 by claude. 배경도 조각마다 다시 뽑는다. 단어 전체의 배경을 물려주면, 한 단어 안에서
+		//배경이 바뀌는 경우(형광 표시 등)를 놓친다 — "할아버지가" 에서 `할아` 에만 하늘색 형광이
+		//깔려 있는데 전체 배경이 흰색으로 잡혀 그 형광이 통째로 사라졌다.
+		//조각 바깥 링의 위/아래 띠가 링 픽셀의 대부분이라, 조각 단위로도 배경이 안정적으로 잡힌다
+		//(실측: `할`/`아` = #9AC6E9, `버`/`지`/`가` = #F9F9F9).
+		ocr_word_style style;
+		style.pt = whole.pt;
+		style.cr_back = (rc_part.Width() > 0)
+			? sample_back_color(bgra, img_w, img_h, rc_part)
+			: whole.cr_back;
+		style.cr_text = (rc_part.Width() > 0)
+			? sample_ink_color(bgra, img_w, img_h, rc_part, style.cr_back)
+			: whole.cr_text;
+
+		out_text.push_back(text.Mid(begin, end - begin));
+		out_style.push_back(style);
+
+		begin = end;
+	}
 }
 
 //20260912 by claude. RTF 는 7-bit 스트림이다. 한글은 \uNNNN? 형태로만 안전하게 실린다.
@@ -1160,11 +1435,213 @@ static CString rtf_escape_text(const CString& text)
 	return out;
 }
 
+//20260912 by claude. 방향별 인식 결과를 한 줄에 모으는 단위. 색·크기는 그 방향의 버퍼에서 이미
+//뽑아 두므로 여기엔 글자와 줄 번호만 남는다 (방향이 다르면 줄 번호가 겹치지 않게 밀어서 준다).
+struct ocr_hit
+{
+	CString text;
+	int     line = 0;
+	bool    glued = false;  //앞 항목에 공백 없이 붙는다 (한 단어를 색으로 쪼갠 조각).
+};
+
+//20260913 by claude. 언샤프 마스크 (분리형 5-tap 가우시안 [1,4,6,4,1]/16, σ≈1.0).
+//엔진은 흐릿한 획을 잘 못 읽는다 — 화면 캡처는 ClearType·동영상 압축·리샘플을 거치며 이미 뭉개져 있다.
+//threshold 미만의 차이는 건드리지 않아 평탄한 배경에 노이즈를 만들지 않는다.
+//확대 *전* 원본에 한 번만 건다. 확대 후에 거는 쪽은 실측에서 더 나빴다 (0.927 vs 0.901).
+static void unsharp_bgra(std::vector<BYTE>& px, int w, int h, int percent, int threshold)
+{
+	if (px.size() < (size_t)w * h * 4 || w <= 0 || h <= 0)
+		return;
+
+	static const int kernel[5] = { 1, 4, 6, 4, 1 };
+	static const int kernel_sum = 16;
+
+	std::vector<BYTE> blurred(px.size());
+
+	//가로
+	for (int y = 0; y < h; ++y)
+	{
+		const BYTE* row = px.data() + (size_t)y * w * 4;
+		BYTE* dst = blurred.data() + (size_t)y * w * 4;
+
+		for (int x = 0; x < w; ++x)
+		{
+			int acc[3] = { 0, 0, 0 };
+			for (int k = -2; k <= 2; ++k)
+			{
+				const int sx = min(max(x + k, 0), w - 1);
+				const BYTE* p = row + (size_t)sx * 4;
+				acc[0] += p[0] * kernel[k + 2];
+				acc[1] += p[1] * kernel[k + 2];
+				acc[2] += p[2] * kernel[k + 2];
+			}
+			BYTE* d = dst + (size_t)x * 4;
+			d[0] = (BYTE)(acc[0] / kernel_sum);
+			d[1] = (BYTE)(acc[1] / kernel_sum);
+			d[2] = (BYTE)(acc[2] / kernel_sum);
+			d[3] = row[(size_t)x * 4 + 3];
+		}
+	}
+
+	//세로 + 합성
+	std::vector<BYTE> column(px.size());
+	for (int y = 0; y < h; ++y)
+	{
+		for (int x = 0; x < w; ++x)
+		{
+			int acc[3] = { 0, 0, 0 };
+			for (int k = -2; k <= 2; ++k)
+			{
+				const int sy = min(max(y + k, 0), h - 1);
+				const BYTE* p = blurred.data() + ((size_t)sy * w + x) * 4;
+				acc[0] += p[0] * kernel[k + 2];
+				acc[1] += p[1] * kernel[k + 2];
+				acc[2] += p[2] * kernel[k + 2];
+			}
+			BYTE* d = column.data() + ((size_t)y * w + x) * 4;
+			d[0] = (BYTE)(acc[0] / kernel_sum);
+			d[1] = (BYTE)(acc[1] / kernel_sum);
+			d[2] = (BYTE)(acc[2] / kernel_sum);
+		}
+	}
+
+	for (size_t i = 0; i + 3 < px.size(); i += 4)
+	{
+		for (int c = 0; c < 3; ++c)
+		{
+			const int diff = (int)px[i + c] - (int)column[i + c];
+			if (diff < threshold && diff > -threshold)
+				continue;
+
+			int v = (int)px[i + c] + diff * percent / 100;
+			px[i + c] = (BYTE)((v < 0) ? 0 : ((v > 255) ? 255 : v));
+		}
+	}
+}
+
+//20260913 by claude. 글자 bigram Dice 계수 (공백 무시). 후보들이 서로 얼마나 같은 말을 하는지 잰다.
+//정답을 모르는 상태에서 "더 정확한 결과" 를 고르는 대용물이다 — 옳게 읽힌 결과는 여러 배율에서
+//서로 비슷하게 나오고, 잘못 읽힌 결과는 제각각이다. 실측에서 difflib 과 동등했다 (0.927 vs 0.925).
+static double text_similarity(const CString& a, const CString& b)
+{
+	auto build = [](const CString& s, std::map<std::wstring, int>& out) -> int
+	{
+		CString t;
+		for (int i = 0; i < s.GetLength(); ++i)
+		{
+			if (!_istspace(s[i]))
+				t += s[i];
+		}
+
+		int total = 0;
+		if (t.GetLength() < 2)
+		{
+			if (t.GetLength() == 1)
+			{
+				out[std::wstring(1, t[0])]++;
+				total = 1;
+			}
+			return total;
+		}
+
+		for (int i = 0; i + 1 < t.GetLength(); ++i)
+		{
+			const std::wstring key(t.GetString() + i, 2);
+			out[key]++;
+			total++;
+		}
+		return total;
+	};
+
+	std::map<std::wstring, int> ma;
+	std::map<std::wstring, int> mb;
+	const int na = build(a, ma);
+	const int nb = build(b, mb);
+
+	if (na == 0 || nb == 0)
+		return (na == nb) ? 1.0 : 0.0;
+
+	int inter = 0;
+	for (const auto& kv : ma)
+	{
+		const auto it = mb.find(kv.first);
+		if (it != mb.end())
+			inter += min(kv.second, it->second);
+	}
+	return 2.0 * inter / (double)(na + nb);
+}
+
+//20260912 by claude. BGRA top-down 버퍼를 90도 단위로 돌린다. 직교 회전은 픽셀 이동일 뿐이라
+//GDI+ 를 태우지 않는다 — 보간이 끼지 않아 원본 픽셀이 그대로 보존된다.
+static void rotate_bgra(const BYTE* src, int w, int h, int angle, std::vector<BYTE>& dst, int& dw, int& dh)
+{
+	dw = h;
+	dh = w;
+	dst.resize((size_t)dw * dh * 4);
+
+	for (int dy = 0; dy < dh; ++dy)
+	{
+		BYTE* row = dst.data() + (size_t)dy * dw * 4;
+		for (int dx = 0; dx < dw; ++dx)
+		{
+			//90 = 시계방향. 원본 (x, y) 가 (h-1-y, x) 로 간다.
+			const int sx = (angle == 90) ? dy : (w - 1 - dy);
+			const int sy = (angle == 90) ? (h - 1 - dx) : dx;
+			memcpy(row + (size_t)dx * 4, src + ((size_t)sy * w + sx) * 4, 4);
+		}
+	}
+}
+
+//20260912 by claude. 회전 패스에서 나오는 노이즈를 거른다. 엉뚱한 방향으로 읽으면 한글·영숫자가 아닌
+//한자·괘선·희귀기호가 섞여 나온다 (실측: "1러Y8|( 4고께z 目들 日十07"). 정상 인식은 거의 전부
+//한글/영숫자/일반 문장부호다. 0도 결과에는 적용하지 않는다 — 그건 그대로 믿는다.
+static bool looks_like_text(const CString& text)
+{
+	if (text.IsEmpty())
+		return false;
+
+	int good = 0;
+	for (int i = 0; i < text.GetLength(); ++i)
+	{
+		const wchar_t ch = text[i];
+		const bool hangul = (ch >= 0xAC00 && ch <= 0xD7A3) || (ch >= 0x3130 && ch <= 0x318F);
+		const bool alnum  = (ch >= 0x30 && ch <= 0x39) || (ch >= 0x41 && ch <= 0x5A) || (ch >= 0x61 && ch <= 0x7A);
+		const bool punct  = (ch < 0x80) && (wcschr(L" .,!?:;%()[]/-+=~#&*_", ch) != NULL);
+		if (hangul || alnum || punct)
+			good++;
+	}
+	//[가정] 정상 인식은 한글/영숫자/문장부호가 80% 이상이다. 한자·일본어가 섞인 정상 텍스트를
+	//노이즈로 오판할 수 있다. 방향·배율을 고르는 점수에만 쓰고 최종 출력은 거르지 않으므로,
+	//틀리면 "덜 좋은 방향을 고르는" 정도로 끝난다.
+	return (good * 5 >= text.GetLength() * 4);
+}
+
+//20260913 by claude. 그 단어가 "내용" 을 담고 있나 — 한글이나 영숫자가 하나라도 있어야 한다.
+//문장부호·기호만으로 된 단어는 대개 엔진이 잡티를 글자로 오인한 것이다
+//(실측: 2x14 픽셀짜리 ',', 8x3 픽셀짜리 '~'). 이런 것에 점수를 주면 안 된다.
+static bool has_content(const CString& text)
+{
+	for (int i = 0; i < text.GetLength(); ++i)
+	{
+		const wchar_t ch = text[i];
+		if (ch >= 0xAC00 && ch <= 0xD7A3)
+			return true;
+		if (ch >= 0x30 && ch <= 0x39)
+			return true;
+		if ((ch >= 0x41 && ch <= 0x5A) || (ch >= 0x61 && ch <= 0x7A))
+			return true;
+	}
+	return false;
+}
+
 //20260912 by claude. 단어별 색·크기를 그대로 담은 RTF. 클립보드의 "Rich Text Format" 포맷으로 나간다.
 //글자색은 \cf, 배경색은 \highlight 로 싣는다 — 어두운 테마 화면을 캡처했을 때 흰 글자가
 //흰 문서 배경에 묻히지 않게 하려면 배경도 같이 실어야 한다.
 //20260912 by claude. 단어들이 깔고 있던 배경 중 최빈색. 토스트 패널을 이 색으로 깔면
 //원본에서 이미 확보돼 있던 글자-배경 대비가 그대로 재현된다.
+//
+//[가정] 한 이미지의 배경은 대체로 한 가지다. 어두운 헤더 + 흰 본문처럼 섞이면 한쪽만 맞는다.
+//다만 build_tagged 의 get_readable_text_color 대비 보정이 뒤를 받쳐 가독성 자체는 유지된다.
 static Gdiplus::Color get_dominant_back_color(const std::vector<ocr_word_style>& styles)
 {
 	auto quantize = [](Gdiplus::Color cr) -> DWORD
@@ -1208,7 +1685,7 @@ static Gdiplus::Color get_dominant_back_color(const std::vector<ocr_word_style>&
 	return Gdiplus::Color(toast_back_default.GetA(), (BYTE)(r / count), (BYTE)(g / count), (BYTE)(b / count));
 }
 
-static CString build_rtf(const std::vector<SCOcrWord>& words, const std::vector<ocr_word_style>& styles)
+static CString build_rtf(const std::vector<ocr_hit>& hits, const std::vector<ocr_word_style>& styles)
 {
 	std::vector<DWORD> palette;
 	auto color_index = [&palette](Gdiplus::Color cr) -> int
@@ -1226,15 +1703,15 @@ static CString build_rtf(const std::vector<SCOcrWord>& words, const std::vector<
 	CString body;
 	int cur_line = -1;
 
-	for (size_t i = 0; i < words.size(); ++i)
+	for (size_t i = 0; i < hits.size(); ++i)
 	{
-		if ((int)words[i].line != cur_line)
+		if (hits[i].line != cur_line)
 		{
 			if (cur_line >= 0)
 				body += _T("\\par\r\n");
-			cur_line = words[i].line;
+			cur_line = hits[i].line;
 		}
-		else
+		else if (!hits[i].glued)
 		{
 			body += _T(" ");
 		}
@@ -1245,7 +1722,7 @@ static CString build_rtf(const std::vector<SCOcrWord>& words, const std::vector<
 			color_index(styles[i].cr_back),
 			max(2, (int)(styles[i].pt * 2.0f + 0.5f)));
 		body += run;
-		body += rtf_escape_text(CString(words[i].text.c_str()));
+		body += rtf_escape_text(hits[i].text);
 	}
 
 	CString colortbl = _T("{\\colortbl ;");
@@ -1264,31 +1741,70 @@ static CString build_rtf(const std::vector<SCOcrWord>& words, const std::vector<
 		+ body + _T("\r\n}");
 }
 
+//20260912 by claude. 평문. 여러 방향의 결과를 합쳤을 수 있으므로 엔진이 준 result.text 를 쓰지 않고 직접 만든다.
+static CString build_plain(const std::vector<ocr_hit>& hits)
+{
+	CString out;
+	int cur_line = -1;
+
+	for (size_t i = 0; i < hits.size(); ++i)
+	{
+		if (hits[i].line != cur_line)
+		{
+			if (cur_line >= 0)
+				out += _T("\r\n");
+			cur_line = hits[i].line;
+		}
+		else if (!hits[i].glued)
+		{
+			out += _T(" ");
+		}
+		out += hits[i].text;
+	}
+	return out;
+}
+
 //20260912 by claude. 토스트용 — SCParagraph 서식 태그로 같은 색·크기를 재현한다.
 //토스트는 원본 배경이 아니라 패널 한 장 위에 글자를 얹는다. 글자색만 원본에서
 //가져오면 패널과 밝기가 비슷할 때 글자가 보이지 않는다 — 실제로 그 사고가 났다.
 //얹을 배경(cr_panel)에 대해 get_readable_text_color 로 확인해서, WCAG 4.5 를 넘으면 원본 색 그대로 두고
 //못 넘을 때만 흑/백 중 대비가 높은 쪽으로 바꾼다. 색을 최대한 살리면서 가독성은 보장된다.
-static CString build_tagged(const std::vector<SCOcrWord>& words, const std::vector<ocr_word_style>& styles,
+static CString build_tagged(const std::vector<ocr_hit>& hits, const std::vector<ocr_word_style>& styles,
 							Gdiplus::Color cr_panel)
 {
 	CString out;
 	int cur_line = -1;
 
-	for (size_t i = 0; i < words.size(); ++i)
+	for (size_t i = 0; i < hits.size(); ++i)
 	{
-		if ((int)words[i].line != cur_line)
+		if (hits[i].line != cur_line)
 		{
 			if (cur_line >= 0)
 				out += _T("<br>");
-			cur_line = words[i].line;
+			cur_line = hits[i].line;
 		}
-		else
+		else if (!hits[i].glued)
 		{
 			out += _T(" ");
 		}
 
-		const Gdiplus::Color cr_text = get_readable_text_color(cr_panel, styles[i].cr_text);
+		//20260913 by claude. 그 단어가 패널과 다른 배경을 깔고 있으면 그 배경을 같이 그린다 —
+		//`할아버지가` 의 `할아` 처럼 형광이 깔린 구간이 토스트에서만 사라지던 문제.
+		//패널과 같은 색이면 태그를 내지 않는다. run 박스는 불투명이라, 반투명 패널 위에 같은 색을
+		//덧칠하면 그 단어만 더 진해 보여 얼룩이 된다.
+		const bool own_back = (color_distance(styles[i].cr_back, cr_panel) > ocr_color_split_distance);
+
+		//글자색은 실제로 깔릴 배경에 대해 읽히는지 본다. 배경을 같이 그릴 때는 그 배경이 기준이다.
+		const Gdiplus::Color cr_under = own_back ? styles[i].cr_back : cr_panel;
+		const Gdiplus::Color cr_text = get_readable_text_color(cr_under, styles[i].cr_text);
+
+		if (own_back)
+		{
+			CString back_tag;
+			back_tag.Format(_T("<crb=#%02X%02X%02X>"),
+				styles[i].cr_back.GetR(), styles[i].cr_back.GetG(), styles[i].cr_back.GetB());
+			out += back_tag;
+		}
 
 		CString tag;
 		tag.Format(_T("<cr=#%02X%02X%02X><sz=%d>"),
@@ -1296,18 +1812,140 @@ static CString build_tagged(const std::vector<SCOcrWord>& words, const std::vect
 			max(1, (int)(styles[i].pt + 0.5f)));
 		out += tag;
 
-		CString word = words[i].text.c_str();
+		CString word = hits[i].text;
 		word.Replace(_T("&"), _T("&amp;"));
 		word.Replace(_T("<"), _T("&lt;"));
 		word.Replace(_T(">"), _T("&gt;"));
 		out += word;
+
+		if (own_back)
+			out += _T("</crb>");
 	}
 	return out;
 }
 
+//20260912 by claude. 그 방향에서 "글자답게" 읽힌 양. 방향·배율 판정 점수로 쓴다.
+//단어 수가 아니라 글자 수로 세는 이유는, 엉뚱한 방향이 짧은 쓰레기 단어를 여럿 뱉는 일이 잦아서다.
+//
+//[가정, 이 코드에서 가장 약한 고리] 이 점수는 읽힌 **양** 을 잴 뿐 **정확도** 를 재지 않는다.
+//쓰레기를 많이 뱉는 방향·배율이 이길 수 있다. 정답을 모르는 상태에서 "더 정확한 결과" 를 재는
+//방법을 찾지 못해 수량으로 대신하고 있다. 더 나은 척도가 생기면 여기를 바꾼다.
+static int score_orientation(const SCOcrResult& result)
+{
+	int score = 0;
+	for (const SCOcrWord& word : result.words)
+	{
+		const CString text = word.text.c_str();
+
+		//문장부호만 있는 단어는 글자 수만 늘릴 뿐 내용이 없다. 세면 잡티가 많은 쪽이 이긴다 —
+		//실제로 '1054007' 을 정확히 읽은 배율들을 제치고, 쉼표 잡티 하나가 더 붙어 8자가 된
+		//배율이 채택되어 ', A054007' 이 나왔다.
+		if (!has_content(text))
+			continue;
+
+		if (looks_like_text(text))
+			score += text.GetLength();
+	}
+	return score;
+}
+
+//20260913 by claude. 한 방향에 대해 배율 후보를 전부 인식한 뒤, **다른 후보들과 가장 많이 일치하는**
+//결과를 고른다. 이전에는 "글자다운 문자 수가 가장 많은 것" 을 골랐는데 그게 틀렸다 — 그건 양을 잴 뿐
+//정확도를 재지 않는다. 실제로 `1054007` 을 정확히 읽은 배율들을 제치고, 2x14 픽셀짜리 쉼표 잡티가
+//하나 더 붙어 8자가 된 배율이 채택되어 `, A054007` 이 나왔다.
+//합의로 바꾸면 정답셋 16장 평균이 0.866 -> 0.927, 완전일치 4장 -> 8장이 된다.
+//probe 는 x1 결과 — 방향을 고르느라 이미 한 번 인식했으므로 다시 돌리지 않는다.
+static SCOcrResult recognize_best_scale(Gdiplus::Bitmap& bmp, int w, int h, int angle,
+										const SCOcrResult& probe, double& scale)
+{
+	struct candidate
+	{
+		double      scale = 1.0;
+		SCOcrResult result;
+		CString     text;
+	};
+
+	std::vector<candidate> list;
+
+	{
+		candidate first;
+		first.scale = 1.0;
+		first.result = probe;
+		first.text = probe.text.c_str();
+		list.push_back(first);
+	}
+
+	for (const double factor : ocr_scale_candidates)
+	{
+		if (fabs(factor - 1.0) <= 0.05)
+			continue;
+
+		const int nw = (int)(w * factor + 0.5);
+		const int nh = (int)(h * factor + 0.5);
+
+		if (nw <= 0 || nh <= 0)
+			continue;
+		if (max(nw, nh) > ocr_max_image_dimension || (double)nw * nh > ocr_max_pixels)
+		{
+			logWrite(_T("[OCR] %d도 배율 x%.2f 건너뜀 — %dx%d 는 한도 초과"), angle, factor, nw, nh);
+			continue;
+		}
+
+		//MFC 디버그 빌드의 #define new DEBUG_NEW 가 GdiplusBase::operator new 와 충돌한다.
+		//인식이 끝나면 버릴 비트맵이라 힙에 둘 이유도 없다 — 스택에 만든다.
+		Gdiplus::Bitmap resampled(nw, nh, PixelFormat32bppARGB);
+
+		Gdiplus::Graphics g(&resampled);
+		g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+		g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+		g.DrawImage(&bmp, 0, 0, nw, nh);
+
+		candidate one;
+		one.scale = factor;
+		one.result = sc_win_ocr_ex(&resampled);
+		if (!one.result.error.empty())
+			continue;
+
+		one.text = one.result.text.c_str();
+		list.push_back(one);
+	}
+
+	//다른 후보들과의 평균 유사도가 가장 높은 것. 동점이면 먼저 나온 쪽(= 더 작은 배율) — 재샘플링은 공짜가 아니다.
+	int best = 0;
+	double best_agreement = -1.0;
+
+	for (size_t i = 0; i < list.size(); ++i)
+	{
+		double total = 0.0;
+		int count = 0;
+
+		for (size_t k = 0; k < list.size(); ++k)
+		{
+			if (k == i)
+				continue;
+			total += text_similarity(list[i].text, list[k].text);
+			count++;
+		}
+
+		const double agreement = (count > 0) ? (total / count) : 1.0;
+		logWrite(_T("[OCR] %d도 배율 x%.2f — 단어 %d개, 합의도 %.3f, %dms"),
+			angle, list[i].scale, list[i].result.word_count, agreement, list[i].result.elapsed_ms);
+
+		if (agreement > best_agreement + 1e-9)
+		{
+			best_agreement = agreement;
+			best = (int)i;
+		}
+	}
+
+	scale = list[best].scale;
+	logWrite(_T("[OCR] %d도 채택 배율 x%.2f (합의도 %.3f)"), angle, scale, best_agreement);
+	return list[best].result;
+}
+
 void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, CWnd* center_on)
 {
-	//20260912 by claude. 캡처 노트의 "텍스트 인식" 과 전역 단축키(Alt+Shift+T) 가 함께 타는 단일 경로.
+	//20260912 by claude. 캡처 노트의 "텍스트 인식" 과 전역 단축키가 함께 타는 단일 경로.
 	//이미지는 이미 클립보드에 있으므로 여기서는 인식한 텍스트를 RTF(색·크기 포함) + 평문으로 넣는다.
 	if (!bgra_top_down || w <= 0 || h <= 0)
 		return;
@@ -1315,11 +1953,6 @@ void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, C
 	CWnd* anchor = (center_on && ::IsWindow(center_on->GetSafeHwnd())) ? center_on : this;
 	const UINT dpi = win_compat::dpi::for_window(anchor->GetSafeHwnd());
 	logWrite(_T("[OCR] 시작 — 이미지 %d x %d, 기준 DPI %d"), w, h, dpi);
-
-	//20260912 by claude. BitBlt 로 뜬 캡처는 alpha 바이트가 0 이다. 32bppARGB 로 넘기면 OcrEngine 이
-	//전면 투명으로 읽어 아무것도 인식하지 못한다. 32bppRGB 는 4번째 바이트를 무시하므로 alpha 를
-	//손대지 않고 불투명으로 전달된다 (SCWinOcr 내부의 LockBits 변환이 alpha 를 255 로 채운다).
-	Gdiplus::Bitmap bmp(w, h, w * 4, PixelFormat32bppRGB, const_cast<BYTE*>(bgra_top_down));
 
 	//20260912 by claude. [진단] 엔진에 넘긴 픽셀을 그대로 파일로 남긴다. 인식이 나쁠 때
 	//"앱이 엉뚱한 픽셀을 넘긴 것"인지 "제대로 넘겼는데 엔진이 못 읽은 것"인지는 이 파일을 봐야 갈린다.
@@ -1334,56 +1967,138 @@ void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, C
 		path.Format(_T("%s\\ocr_input_%04d%02d%02d_%02d%02d%02d.png"),
 			folder.GetString(), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 
-		CSCGdiplusBitmap dump(&bmp);
+		//BitBlt 로 뜬 캡처는 alpha 가 0 이다. 32bppRGB 는 4번째 바이트를 무시하므로 불투명으로 전달된다.
+		Gdiplus::Bitmap src(w, h, w * 4, PixelFormat32bppRGB, const_cast<BYTE*>(bgra_top_down));
+		CSCGdiplusBitmap dump(&src);
 		logWrite(_T("[OCR] 입력 덤프 saved=%d '%s'"), dump.save(path) ? 1 : 0, path.GetString());
 	}
 
 	//20260912 by claude. sc_win_ocr_ex 는 내부 MTA 스레드를 join 하므로 그동안 UI 가 멈춘다.
 	CWaitCursor wait;
-	const SCOcrResult result = sc_win_ocr_ex(&bmp);
 
-	logWrite(_T("[OCR] 엔진='%s' 설치된인식기='%s' 입력=%dx%d alpha=%d~%d 라인=%d 단어=%d 단어높이중앙값=%d %dms"),
-		result.language.c_str(), result.languages.c_str(),
-		result.width, result.height, result.alpha_min, result.alpha_max,
-		result.line_count, result.word_count, result.median_word_height, result.elapsed_ms);
+	//20260913 by claude. 인식에 넘기는 픽셀은 선명화한 것이고, 색을 뽑는 픽셀은 원본이다.
+	//선명화는 획 대비를 올려 인식을 돕지만 가장자리 색을 과장하므로, 그걸로 색을 뽑으면 원래 색과 달라진다.
+	//회전은 픽셀 이동일 뿐이라 "선명화 후 회전" 과 "회전 후 선명화" 가 같다 — 그래서 한 번만 건다.
+	std::vector<BYTE> sharpened(bgra_top_down, bgra_top_down + (size_t)w * h * 4);
+	unsharp_bgra(sharpened, w, h, ocr_unsharp_percent, ocr_unsharp_threshold);
 
-	if (!result.error.empty())
+	//엔진에는 자동 회전 보정이 없다 — 실측에서 책등의 세로 글자가 0도에서는 한 글자도 안 나오다가
+	//90도로 돌리자 전부 나왔다. 그래서 세 방향을 재 보고 가장 글자답게 읽힌 방향을 고른다.
+	const int angles[] = { 0, 90, 270 };
+
+	std::vector<BYTE> rotated_sharp;
+	std::vector<BYTE> rotated_plain;
+	int best_angle = 0;
+	int best_score = -1;
+	SCOcrResult best_probe;
+
+	for (int i = 0; i < 3; ++i)
 	{
-		logWriteE(_T("[OCR] 실패 — %s"), result.error.c_str());
+		const int angle = angles[i];
 
-		CString message;
-		message.Format(_T("텍스트 인식에 실패했습니다.\n\n%s"), result.error.c_str());
-		AfxMessageBox(message, MB_ICONWARNING);
-		return;
+		std::vector<BYTE> buffer;
+		const BYTE* src = sharpened.data();
+		int sw = w;
+		int sh = h;
+
+		if (angle != 0)
+		{
+			rotate_bgra(sharpened.data(), w, h, angle, buffer, sw, sh);
+			src = buffer.data();
+		}
+
+		Gdiplus::Bitmap bmp(sw, sh, sw * 4, PixelFormat32bppRGB, const_cast<BYTE*>(src));
+		const SCOcrResult probe = sc_win_ocr_ex(&bmp);
+
+		if (angle == 0 && !probe.error.empty())
+		{
+			logWriteE(_T("[OCR] 실패 — %s"), probe.error.c_str());
+
+			CString message;
+			message.Format(_T("텍스트 인식에 실패했습니다.\n\n%s"), probe.error.c_str());
+			AfxMessageBox(message, MB_ICONWARNING);
+			return;
+		}
+
+		const int score = score_orientation(probe);
+		logWrite(_T("[OCR] 방향 탐색 %d도 — 단어 %d개, 글자다운 문자 %d자, %dms"),
+			angle, probe.word_count, score, probe.elapsed_ms);
+
+		//동점이면 0도를 유지한다. 세로로 읽어도 비슷하게 나오는 이미지는 원래 방향이 맞을 확률이 높다.
+		if (score > best_score)
+		{
+			best_score = score;
+			best_angle = angle;
+			best_probe = probe;
+		}
 	}
 
-	CString plain = result.text.c_str();
-	plain.Trim();
-	if (plain.IsEmpty() || result.words.empty())
+	//인식용(선명화)과 색 추출용(원본)을 같은 방향으로 각각 준비한다.
+	const BYTE* src_sharp = sharpened.data();
+	const BYTE* src = bgra_top_down;
+	int sw = w;
+	int sh = h;
+
+	if (best_angle != 0)
+	{
+		rotate_bgra(sharpened.data(), w, h, best_angle, rotated_sharp, sw, sh);
+		rotate_bgra(bgra_top_down, w, h, best_angle, rotated_plain, sw, sh);
+		src_sharp = rotated_sharp.data();
+		src = rotated_plain.data();
+	}
+	logWrite(_T("[OCR] 채택 방향 %d도 (%d자)"), best_angle, best_score);
+
+	Gdiplus::Bitmap bmp(sw, sh, sw * 4, PixelFormat32bppRGB, const_cast<BYTE*>(src_sharp));
+
+	double scale = 1.0;
+	const SCOcrResult result = recognize_best_scale(bmp, sw, sh, best_angle, best_probe, scale);
+
+	std::vector<ocr_hit> hits;
+	std::vector<ocr_word_style> styles;
+
+	const double inv = (scale > 0.0) ? (1.0 / scale) : 1.0;
+
+	for (const SCOcrWord& word : result.words)
+	{
+		//정규화했다면 좌표가 확대·축소된 이미지 기준이다. 색은 그 방향 버퍼의 원래 해상도에서 뽑는다.
+		const CRect rc((int)(word.x * inv), (int)(word.y * inv),
+			(int)((word.x + word.width) * inv), (int)((word.y + word.height) * inv));
+		const int height_src = (int)(word.height * inv + 0.5);
+
+		//한 단어 안에서 색이 바뀌면 쪼갠다 — 엔진은 단어 단위로만 돌려주기 때문이다.
+		std::vector<CString> parts;
+		std::vector<ocr_word_style> part_styles;
+		split_word_by_color(src, sw, sh, rc, dpi, height_src, CString(word.text.c_str()), parts, part_styles);
+
+		for (size_t k = 0; k < parts.size(); ++k)
+		{
+			ocr_hit hit;
+			hit.text  = parts[k];
+			hit.line  = word.line;
+			hit.glued = (k > 0);
+
+			hits.push_back(hit);
+			styles.push_back(part_styles[k]);
+
+			logWrite(_T("[OCR] word line=%d rect=(%d,%d,%d,%d) 글자=#%02X%02X%02X 배경=#%02X%02X%02X %.1fpt '%s'%s"),
+				hit.line, rc.left, rc.top, rc.Width(), rc.Height(),
+				part_styles[k].cr_text.GetR(), part_styles[k].cr_text.GetG(), part_styles[k].cr_text.GetB(),
+				part_styles[k].cr_back.GetR(), part_styles[k].cr_back.GetG(), part_styles[k].cr_back.GetB(),
+				part_styles[k].pt, hit.text.GetString(),
+				(parts.size() > 1) ? _T(" [색 분할]") : _T(""));
+		}
+	}
+
+	if (hits.empty())
 	{
 		logWriteW(_T("[OCR] 인식된 텍스트 없음"));
 		show_message(_T("인식된 텍스트가 없습니다."), anchor);
 		return;
 	}
 
-	//단어마다 원본 픽셀에서 색을 뽑고 상자 높이로 글자 크기를 환산한다.
-	std::vector<ocr_word_style> styles;
-	styles.reserve(result.words.size());
-	for (const SCOcrWord& word : result.words)
-	{
-		const CRect rc(word.x, word.y, word.x + word.width, word.y + word.height);
-		const ocr_word_style style = sample_word_style(bgra_top_down, w, h, rc, dpi, word.height);
-		styles.push_back(style);
-
-		logWrite(_T("[OCR] word line=%d rect=(%d,%d,%d,%d) 글자=#%02X%02X%02X 배경=#%02X%02X%02X %.1fpt '%s'"),
-			word.line, rc.left, rc.top, rc.Width(), rc.Height(),
-			style.cr_text.GetR(), style.cr_text.GetG(), style.cr_text.GetB(),
-			style.cr_back.GetR(), style.cr_back.GetG(), style.cr_back.GetB(),
-			style.pt, word.text.c_str());
-	}
-
-	const CString rtf = build_rtf(result.words, styles);
-	logWrite(_T("[OCR] RTF %d 자, 평문 %d 자"), rtf.GetLength(), plain.GetLength());
+	const CString plain = build_plain(hits);
+	const CString rtf = build_rtf(hits, styles);
+	logWrite(_T("[OCR] 단어 %d개, RTF %d 자, 평문 %d 자"), (int)hits.size(), rtf.GetLength(), plain.GetLength());
 
 	//RTF(서식) + 평문을 같은 클립보드 세션에 담는다. 워드/한글은 RTF 를, 메모장은 평문을 가져간다.
 	if (::OpenClipboard(m_hWnd))
@@ -1425,7 +2140,12 @@ void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, C
 	const Gdiplus::Color cr_panel = get_dominant_back_color(styles);
 	logWrite(_T("[OCR] 토스트 패널색 #%02X%02X%02X"), cr_panel.GetR(), cr_panel.GetG(), cr_panel.GetB());
 
-	show_message_tagged(build_tagged(result.words, styles, cr_panel), anchor, cr_panel);
+	//20260913 by claude. [진단] 토스트로 넘어가는 태그 문자열 그대로. 추출값은 맞는데 화면에만
+	//안 나오는 경우, 태그가 안 붙은 것인지 붙었는데 안 그려지는 것인지는 이걸 봐야 갈린다.
+	const CString tagged = build_tagged(hits, styles, cr_panel);
+	logWrite(_T("[OCR] 토스트 태그: %s"), tagged.GetString());
+
+	show_message_tagged(tagged, anchor, cr_panel);
 }
 
 void CSCDeskToolsDlg::show_message(CString message, CWnd* center_on)

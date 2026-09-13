@@ -8,7 +8,9 @@
 // - 휠 = 줌 인/아웃 (m_img_dlg.zoom(±1)).
 // - 가운데 버튼 클릭 = 크기 / 비율 / 마우스 픽셀 좌표 표시 토글.
 // - +, - 키 = 줌 인/아웃.
-// - 우클릭 = 컨텍스트 메뉴 (클립보드 복사 / 텍스트 인식 / 100% / fit / 배경색 / 닫기).
+// - 우클릭 = 컨텍스트 메뉴 (클립보드 복사 / 텍스트 인식 / 회전 / 100% / fit / 배경색 / 닫기).
+// - Ctrl+좌우 방향키 = 이미지 자체를 90도 회전 (픽셀 버퍼가 바뀌므로 복사/저장/OCR 에 모두 반영).
+//   Alt+좌우(15도) / Alt+Shift+좌우(1도) 는 표시만 돌리는 자유각 회전이라 별개다.
 // - ESC = 닫기.
 // - heap 할당 + PostNcDestroy 에서 self-delete (멀티 인스턴스 안전).
 //
@@ -57,6 +59,8 @@ private:
 		cmd_interp_nearest = 10,
 		cmd_interp_linear = 11,
 		cmd_ocr = 12,
+		cmd_rotate_left = 13,
+		cmd_rotate_right = 14,
 	};
 
 	CSCD2Context	m_d2;
@@ -110,6 +114,10 @@ private:
 	void			apply_back_setting(DWORD value);	//back_default / back_zigzag / ARGB 를 m_img_dlg 에 반영
 	DWORD			get_back_setting() const;			//현재 상태를 같은 표현으로 되돌려줌 (메뉴 체크 표시용)
 	void			execute_cmd(int cmd);	//메뉴 항목과 단축키가 공유하는 명령 디스패처
+
+	//20260912 by claude. 이미지를 90도 돌린다. 픽셀 버퍼·D2D 비트맵·창 크기를 함께 바꾸며,
+	//회전 전과 같은 배율로 보이도록 client 크기를 새 비율에 맞춘다.
+	void			rotate_image(bool clockwise);
 	void			on_img_dlg_post_paint(ID2D1DeviceContext* d2dc);	//m_img_dlg 의 D2D frame 안에서 추가 오버레이 그리기
 	CRect			get_close_button_rect() const;	//닫기 버튼 client 좌표 rect (OnSize / OnNcHitTest / paint / click 공유)
 
