@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# OCR 테스트 데이터 — 화면 캡처라 무엇을 보고 있었는지가 드러날 수 있다 (Common/claude.md 1A).
+# 로컬 회귀 테스트용으로만 두고 repo 에는 올리지 않는다.
+/testdata/
