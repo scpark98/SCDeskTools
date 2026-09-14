@@ -1635,8 +1635,8 @@ static bool has_content(const CString& text)
 }
 
 //20260912 by claude. 단어별 색·크기를 그대로 담은 RTF. 클립보드의 "Rich Text Format" 포맷으로 나간다.
-//글자색은 \cf, 배경색은 \highlight 로 싣는다 — 어두운 테마 화면을 캡처했을 때 흰 글자가
-//흰 문서 배경에 묻히지 않게 하려면 배경도 같이 실어야 한다.
+//20260914 by claude. 배경은 싣지 않고 글자색만 싣는다. 가독성은 배경이 아니라 글자색 보정으로 맞춘다 —
+//배경을 실으면 PowerPoint 에서 단어 사이에 세로줄이 남는다 (build_rtf 본문 주석 참조).
 //20260912 by claude. 단어들이 깔고 있던 배경 중 최빈색. 토스트 패널을 이 색으로 깔면
 //원본에서 이미 확보돼 있던 글자-배경 대비가 그대로 재현된다.
 //
@@ -1700,8 +1700,28 @@ static CString build_rtf(const std::vector<ocr_hit>& hits, const std::vector<ocr
 		return (int)palette.size();
 	};
 
+	//20260914 by claude. 배경(\highlight)은 싣지 않는다.
+	//PowerPoint 는 음영을 *단어 단위* 로 칠하면서 단어 경계를 각자 반올림해, 어떤 경계에는
+	//아무도 칠하지 않는 1px 을 남긴다. 그 틈으로 붙여넣은 쪽의 배경이 비쳐 세로줄이 된다.
+	//2026-09-14 에 막을 방법을 전부 시험했고 전부 실패했다 —
+	//  문단 음영(\cbpat): PowerPoint 가 통째로 무시 (세로바 15개로 동일, 띠 폭도 그대로)
+	//  런 합치기 + 줄 단위 글자 크기: 22개 → 15개로 줄기만 함
+	//  \~(줄바꿈 없는 공백): 배경색이 정확히 한 가지일 때만 들었다 (터미널 캡처 22개 → 2개).
+	//                        배경이 안티에일리어싱으로 단어마다 미세하게 다른 일반 화면에서는 무효
+	//  거의 같은 배경색을 대표색으로 모으기: 차이 없음
+	//틈은 밝은 화면 캡처에도 늘 있었고(픽셀로 확인: 로그인 화면 20개 열, 배너 3개 열)
+	//하이라이트가 검정일 때만 눈에 띄었던 것이다. 칠할 상자가 없으면 원리적으로 생기지 않는다.
+	//
+	//글자색은 원본 그대로 싣는다. 대비 보정을 하지 않는다 —
+	//붙여넣은 문서의 배경은 우리가 알 수 없고, 밝은 글자를 어둡게 바꾸는 것이 오히려 부작용이 된다.
+	//어디에 붙이고 어떻게 보이게 할지는 작업자가 정한다. 우리는 읽은 그대로를 준다.
 	CString body;
 	int cur_line = -1;
+
+	//앞 런과 서식이 완전히 같으면 제어어를 다시 내지 않고 그 런에 이어 붙인다.
+	//서식이 같은데도 런이 갈리는 경우가 실제로 있었다 — 색 분할이 같은 색으로 쪼갠 'r' 과 'd'.
+	int last_cf = -1;
+	int last_fs = -1;
 
 	for (size_t i = 0; i < hits.size(); ++i)
 	{
@@ -1716,12 +1736,20 @@ static CString build_rtf(const std::vector<ocr_hit>& hits, const std::vector<ocr
 			body += _T(" ");
 		}
 
-		CString run;
-		run.Format(_T("\\cf%d\\highlight%d\\fs%d "),
-			color_index(styles[i].cr_text),
-			color_index(styles[i].cr_back),
-			max(2, (int)(styles[i].pt * 2.0f + 0.5f)));
-		body += run;
+		const int cf = color_index(styles[i].cr_text);
+		const int fs = max(2, (int)(styles[i].pt * 2.0f + 0.5f));
+
+		//문자 서식은 \par 를 넘어서도 유지되므로 줄이 바뀌어도 다시 낼 필요가 없다.
+		if (cf != last_cf || fs != last_fs)
+		{
+			CString run;
+			run.Format(_T("\\cf%d\\fs%d "), cf, fs);
+			body += run;
+
+			last_cf = cf;
+			last_fs = fs;
+		}
+
 		body += rtf_escape_text(hits[i].text);
 	}
 
@@ -1931,6 +1959,15 @@ static SCOcrResult recognize_best_scale(Gdiplus::Bitmap& bmp, int w, int h, int 
 		logWrite(_T("[OCR] %d도 배율 x%.2f — 단어 %d개, 합의도 %.3f, %dms"),
 			angle, list[i].scale, list[i].result.word_count, agreement, list[i].result.elapsed_ms);
 
+		//20260914 by claude. [진단] 배율별 인식 결과 원문. 채택된 배율의 단어만 남기면
+		//"엔진이 애초에 못 읽은 것"인지 "다른 배율은 읽었는데 합의도 선택이 놓친 것"인지 갈리지 않는다.
+		//(실제로 코드 화면 캡처에서 '}' 만 있는 줄이 통째로 빠졌고, 단어 수가 8개 더 많던 x1.00 을
+		// 확인할 방법이 없었다.) 줄바꿈은 한 줄로 보이도록 ' | ' 로 바꾼다.
+		CString flat = list[i].text;
+		flat.Replace(_T("\r\n"), _T(" | "));
+		flat.Replace(_T("\n"), _T(" | "));
+		logWrite(_T("[OCR] %d도 배율 x%.2f 결과: %s"), angle, list[i].scale, flat.GetString());
+
 		if (agreement > best_agreement + 1e-9)
 		{
 			best_agreement = agreement;
@@ -1954,6 +1991,9 @@ void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, C
 	const UINT dpi = win_compat::dpi::for_window(anchor->GetSafeHwnd());
 	logWrite(_T("[OCR] 시작 — 이미지 %d x %d, 기준 DPI %d"), w, h, dpi);
 
+	//20260914 by claude. 입력 덤프와 텍스트 덤프가 같은 시각을 파일명에 쓰도록 여기서 한 번만 만든다.
+	CString dump_stamp;
+
 	//20260912 by claude. [진단] 엔진에 넘긴 픽셀을 그대로 파일로 남긴다. 인식이 나쁠 때
 	//"앱이 엉뚱한 픽셀을 넘긴 것"인지 "제대로 넘겼는데 엔진이 못 읽은 것"인지는 이 파일을 봐야 갈린다.
 	{
@@ -1963,9 +2003,11 @@ void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, C
 		SYSTEMTIME st;
 		::GetLocalTime(&st);
 
+		dump_stamp.Format(_T("%04d%02d%02d_%02d%02d%02d"),
+			st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
 		CString path;
-		path.Format(_T("%s\\ocr_input_%04d%02d%02d_%02d%02d%02d.png"),
-			folder.GetString(), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+		path.Format(_T("%s\\ocr_input_%s.png"), folder.GetString(), dump_stamp.GetString());
 
 		//BitBlt 로 뜬 캡처는 alpha 가 0 이다. 32bppRGB 는 4번째 바이트를 무시하므로 불투명으로 전달된다.
 		Gdiplus::Bitmap src(w, h, w * 4, PixelFormat32bppRGB, const_cast<BYTE*>(bgra_top_down));
@@ -2058,12 +2100,37 @@ void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, C
 
 	const double inv = (scale > 0.0) ? (1.0 / scale) : 1.0;
 
+	//20260914 by claude. 글자 크기는 그 단어의 상자가 아니라 *줄 전체* 의 잉크 높이에서 뽑는다.
+	//단어 상자 높이는 그 단어에 어떤 글자가 들어 있느냐로 정해진다 — 같은 크기로 찍힌 한 줄인데도
+	//'-' 는 2px, '+' 는 6px, '등' 은 12px 상자가 나와 1.6pt / 4.9pt / 9.8pt 로 갈렸다
+	//(2026-09-14 실측 로그). 줄의 잉크 상하 끝은 어센더~디센더를 다 포함하므로 em 상자에 가깝다.
+	std::map<int, std::pair<int, int>> line_extent;
+
+	for (const SCOcrWord& word : result.words)
+	{
+		const int top    = (int)(word.y * inv);
+		const int bottom = (int)((word.y + word.height) * inv + 0.5);
+
+		auto it = line_extent.find(word.line);
+		if (it == line_extent.end())
+			line_extent[word.line] = std::make_pair(top, bottom);
+		else
+		{
+			it->second.first  = min(it->second.first, top);
+			it->second.second = max(it->second.second, bottom);
+		}
+	}
+
 	for (const SCOcrWord& word : result.words)
 	{
 		//정규화했다면 좌표가 확대·축소된 이미지 기준이다. 색은 그 방향 버퍼의 원래 해상도에서 뽑는다.
 		const CRect rc((int)(word.x * inv), (int)(word.y * inv),
 			(int)((word.x + word.width) * inv), (int)((word.y + word.height) * inv));
-		const int height_src = (int)(word.height * inv + 0.5);
+
+		const auto extent = line_extent.find(word.line);
+		const int height_src = (extent != line_extent.end())
+			? (extent->second.second - extent->second.first)
+			: (int)(word.height * inv + 0.5);
 
 		//한 단어 안에서 색이 바뀌면 쪼갠다 — 엔진은 단어 단위로만 돌려주기 때문이다.
 		std::vector<CString> parts;
@@ -2144,6 +2211,31 @@ void CSCDeskToolsDlg::run_ocr_on_bgra(const BYTE* bgra_top_down, int w, int h, C
 	//안 나오는 경우, 태그가 안 붙은 것인지 붙었는데 안 그려지는 것인지는 이걸 봐야 갈린다.
 	const CString tagged = build_tagged(hits, styles, cr_panel);
 	logWrite(_T("[OCR] 토스트 태그: %s"), tagged.GetString());
+
+	//20260914 by claude. [진단] 클립보드로 나간 RTF 와 토스트 태그를 그대로 파일에 남긴다.
+	//붙여넣은 모습이 이상할 때, 우리가 잘못된 태그를 실은 것인지 받는 쪽이 그렇게 그린 것인지는
+	//이 파일과 ocr_input_*.png 를 나란히 놓고 봐야 갈린다. 파일명의 시각이 그 짝을 맞춘다.
+	if (!dump_stamp.IsEmpty())
+	{
+		CString path;
+		path.Format(_T("%s\\Log\\ocr_text_%s.txt"), get_exe_directory().GetString(), dump_stamp.GetString());
+
+		FILE* fp = NULL;
+		_tfopen_s(&fp, path, _T("wt")CHARSET);
+
+		if (fp != NULL)
+		{
+			_ftprintf_s(fp, _T("[tagged]\n%s\n\n[rtf]\n%s\n\n[plain]\n%s\n"),
+				tagged.GetString(), rtf.GetString(), plain.GetString());
+			fclose(fp);
+
+			logWrite(_T("[OCR] 텍스트 덤프 '%s'"), path.GetString());
+		}
+		else
+		{
+			logWriteE(_T("[OCR] 텍스트 덤프 실패 '%s'"), path.GetString());
+		}
+	}
 
 	show_message_tagged(tagged, anchor, cr_panel);
 }
