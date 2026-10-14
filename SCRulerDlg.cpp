@@ -324,12 +324,13 @@ void CSCRulerDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 			const double dpi = double(win_compat::dpi::for_point(
 				CPoint(int(p_s.x) + m_virtual_screen.left, int(p_s.y) + m_virtual_screen.top),
 				win_compat::dpi::dpi_raw));
-			const double length_cm = length / dpi * 2.54;
+			const double length_inch = length / dpi;
+			const double length_cm = length_inch * 2.54;
 
 			WCHAR text[96];
-			swprintf_s(text, L"%.1f px (%.2f cm)   %.1f°", length, length_cm, angle_deg);
+			swprintf_s(text, L"%.1f px (%.2f cm, %.2f inch)   %.1f°", length, length_cm, length_inch, angle_deg);
 
-			const float lw = scaled_f(250.0f);
+			const float lw = scaled_f(320.0f);
 			const float lh = scaled_f(28.0f);
 
 			//중점 기준, 라인의 수직 방향(왼쪽) 으로 lh + 라벨 절반 만큼 옮김.

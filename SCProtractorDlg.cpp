@@ -31,6 +31,11 @@ namespace
 	{
 		return D2D1::Point2F(float(pt.x), float(pt.y));
 	}
+
+	double direction_radians(D2D1_POINT_2F from, D2D1_POINT_2F to)
+	{
+		return atan2(double(to.y) - from.y, double(to.x) - from.x);
+	}
 }
 
 double CSCProtractorDlg::calc_angle_degrees() const
@@ -86,7 +91,7 @@ void CSCProtractorDlg::on_mouse_down(UINT nFlags, CPoint point)
 	case Phase::phase_place_arm_b:
 		//드래그 없이 클릭만으로 확정되는 단계라, on_mouse_move 에서 그려주던 것과 같은 스냅을 여기서도 적용해야
 		//화면에 보이던 위치 그대로 확정된다.
-		m_arm_b = snap_direction(m_vertex, to_point(point), snap_step_degrees(nFlags));
+		m_arm_b = snap_direction(m_vertex, to_point(point), snap_step_degrees(nFlags), direction_radians(m_vertex, m_arm_a));
 		m_phase = Phase::phase_edit;
 		Invalidate(FALSE);
 		return;
@@ -109,6 +114,8 @@ void CSCProtractorDlg::on_mouse_move(UINT nFlags, CPoint point)
 {
 	//각 arm 은 vertex 를 기준으로 스냅한다 — 30°/45° 같은 각을 정확히 만들 수 있다.
 	//vertex 평행이동은 각도가 변하지 않으므로 스냅 대상이 아니다.
+	//20261015 by claude. 반대쪽 arm 이 있으면 그 방향을 눈금 기준으로 삼는다. 화면 수평 기준으로 스냅하면
+	//반대쪽 arm 이 스냅 없이 놓였을 때 사잇각이 "임의 각 + 5의 배수" 가 된다.
 	const double step = snap_step_degrees(nFlags);
 
 	switch (m_phase)
@@ -122,7 +129,7 @@ void CSCProtractorDlg::on_mouse_move(UINT nFlags, CPoint point)
 		return;
 
 	case Phase::phase_place_arm_b:
-		m_arm_b = snap_direction(m_vertex, to_point(point), step);
+		m_arm_b = snap_direction(m_vertex, to_point(point), step, direction_radians(m_vertex, m_arm_a));
 		Invalidate(FALSE);
 		return;
 
@@ -134,12 +141,12 @@ void CSCProtractorDlg::on_mouse_move(UINT nFlags, CPoint point)
 		}
 		else if (m_drag_target == ht_arm_a)
 		{
-			m_arm_a = snap_direction(m_vertex, to_point(point), step);
+			m_arm_a = snap_direction(m_vertex, to_point(point), step, direction_radians(m_vertex, m_arm_b));
 			Invalidate(FALSE);
 		}
 		else if (m_drag_target == ht_arm_b)
 		{
-			m_arm_b = snap_direction(m_vertex, to_point(point), step);
+			m_arm_b = snap_direction(m_vertex, to_point(point), step, direction_radians(m_vertex, m_arm_a));
 			Invalidate(FALSE);
 		}
 		return;
@@ -281,7 +288,20 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 				clockwise = false;
 			}
 
-			const double angle_start = clockwise ? angle_a : angle_b;
+			double angle_start = clockwise ? angle_a : angle_b;
+
+			//20261015 by claude. 180° 에서는 양쪽 호가 같은 크기라, 좌표 오차가 sweep 을 π 위/아래로 흔드는 대로
+			//호가 위아래로 뒤집힌다. 이 구간에서는 호가 화면 위쪽(두 팔이 수직이면 오른쪽)에 오도록 고정한다.
+			if (fabs(sweep - pi) < 1e-3)
+			{
+				sweep = pi;
+				angle_start = angle_a;
+				const double mid_a = angle_a + pi * 0.5;
+				const bool upper = sin(mid_a) < -1e-3;
+				const bool right_on_vertical = fabs(sin(mid_a)) <= 1e-3 && cos(mid_a) > 0.0;
+				if (!upper && !right_on_vertical)
+					angle_start = angle_b;
+			}
 
 			ComPtr<ID2D1Factory> factory;
 			d2dc->GetFactory(factory.GetAddressOf());
@@ -331,14 +351,14 @@ void CSCProtractorDlg::on_overlay_paint(ID2D1DeviceContext* d2dc)
 
 				double angle_deg = calc_angle_degrees();
 				WCHAR text[64];
-				swprintf_s(text, L"%.1f°", angle_deg);
+				swprintf_s(text, L"%.1f° (%.3f rad)", angle_deg, angle_deg * pi / 180.0);
 
 				double mid = angle_start + sweep * 0.5;
 				double label_dist = arc_radius + scaled(28);
-				float lx = float(p_v.x + cos(mid) * label_dist) - scaled_f(50.0f);
+				float lx = float(p_v.x + cos(mid) * label_dist) - scaled_f(90.0f);
 				float ly = float(p_v.y + sin(mid) * label_dist) - scaled_f(14.0f);
 
-				const float lw = scaled_f(100.0f);
+				const float lw = scaled_f(180.0f);
 				const float lh = scaled_f(28.0f);
 				const float full_w = float(m_virtual_screen.Width());
 				const float full_h = float(m_virtual_screen.Height());

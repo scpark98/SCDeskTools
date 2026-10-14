@@ -99,7 +99,8 @@ protected:
 	//anchor→target 방향만 step_degrees 배수로 맞추고 길이는 그대로 둔다. step_degrees 가 0 이면 target 그대로.
 	//결과가 실수인 이유: 정수 픽셀로 반올림해 보관하면 그 점의 실제 각도가 스냅값에서
 	//최대 atan(0.7/길이) 만큼 어긋나, 마우스를 움직일 때마다 각도 표시와 라인이 미세하게 떨린다.
-	static D2D1_POINT_2F	snap_direction(D2D1_POINT_2F anchor, D2D1_POINT_2F target, double step_degrees);
+	//20261015 by claude. base_radians = 스냅 눈금의 기준 방향 (0 = 화면 수평). 각도기처럼 다른 라인과의 사잇각을 맞출 때 그 라인 방향을 준다.
+	static D2D1_POINT_2F	snap_direction(D2D1_POINT_2F anchor, D2D1_POINT_2F target, double step_degrees, double base_radians = 0.0);
 
 	//조합키 안내 문구 — 두 도구가 같은 문장을 쓰도록.
 	static const wchar_t*	snap_hint_text() { return L"Shift=5° / Ctrl=15° / Shift+Ctrl=45° 스냅"; }

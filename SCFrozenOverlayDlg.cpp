@@ -293,7 +293,7 @@ double CSCFrozenOverlayDlg::snap_step_degrees(UINT nFlags)
 	return 0.0;
 }
 
-D2D1_POINT_2F CSCFrozenOverlayDlg::snap_direction(D2D1_POINT_2F anchor, D2D1_POINT_2F target, double step_degrees)
+D2D1_POINT_2F CSCFrozenOverlayDlg::snap_direction(D2D1_POINT_2F anchor, D2D1_POINT_2F target, double step_degrees, double base_radians)
 {
 	if (step_degrees <= 0.0)
 		return target;
@@ -307,7 +307,7 @@ D2D1_POINT_2F CSCFrozenOverlayDlg::snap_direction(D2D1_POINT_2F anchor, D2D1_POI
 	const double pi = 3.14159265358979323846;
 	const double step = step_degrees * pi / 180.0;
 	//floor 대신 이 형태를 쓰면 음수 각도에서도 같은 방향으로 반올림된다 (atan2 는 -pi ~ pi).
-	const double snapped = step * floor(atan2(dy, dx) / step + 0.5);
+	const double snapped = base_radians + step * floor((atan2(dy, dx) - base_radians) / step + 0.5);
 
 	return D2D1::Point2F(
 		float(anchor.x + cos(snapped) * len),
